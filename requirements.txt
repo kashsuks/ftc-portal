@@ -1,4 +1,4 @@
-ttkthemes
+TKinterModernThemes
 psycopg2
 requests
 bcrypt

@@ -594,7 +594,10 @@ class LoginFrame(BaseFrame):
 class FtcPortalApp(ThemedTk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.set_theme("arc")
+        forestDarkPath = os.path.join(os.path.dirname(__file__), "themes", "forest-dark.tcl")
+        self.tk.call("source", forestDarkPath)
+        ttk.Style().theme_use("forest-dark")
+
 
         self.attributes('-fullscreen', True)
         self.bind('<Escape>', lambda e: self.quitFullscreen())
