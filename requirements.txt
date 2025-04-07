@@ -1,0 +1,5 @@
+ttkthemes
+psycopg2
+requests
+bcrypt
+pyinstaller 

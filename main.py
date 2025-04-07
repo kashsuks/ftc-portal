@@ -208,7 +208,10 @@ def hashPassword(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
 def checkPassword(plainPassword, hashedPassword):
-    return bcrypt.checkpw(plainPassword.encode('utf-8'), hashedPassword.encode('utf-8'))
+    # If hashedPassword is already a string (from database), decode it
+    if isinstance(hashedPassword, str):
+        hashedPassword = hashedPassword.encode('utf-8')
+    return bcrypt.checkpw(plainPassword.encode('utf-8'), hashedPassword)
 
 # --- FTC Scout API ---
 def checkFtcTeamExists(teamNumber):
