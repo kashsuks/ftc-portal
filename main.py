@@ -1,30 +1,26 @@
 # main.py
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from ttkthemes import ThemedTk # To use themes like 'park'
-import psycopg2 # For PostgreSQL connection
+from ttkthemes import ThemedTk
+import psycopg2
 import psycopg2.extras
-import requests # For FTC Scout API calls
-import bcrypt # For password hashing
-import json # For simple local config storage
-import os # For finding config path
-import re # For URL validation (basic)
+import requests
+import hashlib
+import json
+import os
+import re
 from datetime import datetime
 
-# --- Constants ---
 CONFIG_FILE_NAME = "ftc_portal_config.json"
 FTC_SCOUT_API_BASE_URL = "https://api.ftcscout.org/rest/v1"
-CURRENT_FTC_SEASON = datetime.now().year # Adjust if season rollover is different
+CURRENT_FTC_SEASON = datetime.now().year
 
-# --- Global State (Use with caution in larger apps) ---
 dbConnection = None
-currentUser = None # Dictionary storing logged-in user details ({'user_id', 'username', 'is_admin', 'role_id'})
-teamInfo = None # Dictionary storing team info ({'team_number', 'team_name'})
-dbUrlUsed = None # Store the currently used DB URL
+currentUser = None
+teamInfo = None
+dbUrlUsed = None
 
-# --- Configuration Management ---
 def getConfigFilePath():
-    # Store config in user's home directory for better persistence
     homeDir = os.path.expanduser("~")
     configDir = os.path.join(homeDir, ".ftcportal")
     if not os.path.exists(configDir):
@@ -32,7 +28,6 @@ def getConfigFilePath():
             os.makedirs(configDir)
         except OSError as e:
             print(f"Warning: Could not create config directory: {e}")
-            # Fallback to current directory if home is not writable
             return CONFIG_FILE_NAME
     return os.path.join(configDir, CONFIG_FILE_NAME)
 
@@ -45,30 +40,29 @@ def saveConfig(configData):
         messagebox.showerror("Config Error", f"Failed to save configuration:\n{e}")
 
 def loadConfig():
-    global dbUrlUsed
+    global dbUrlUsed, currentUser
     filePath = getConfigFilePath()
     if os.path.exists(filePath):
         try:
             with open(filePath, 'r') as f:
                 config = json.load(f)
-                dbUrlUsed = config.get("dbUrl") # Load the DB URL if it exists
+                dbUrlUsed = config.get("dbUrl")
+                if "username" in config:
+                    currentUser = {"username": config["username"]}
                 return config
         except (IOError, json.JSONDecodeError) as e:
             messagebox.showerror("Config Error", f"Failed to load configuration:\n{e}\nConfiguration file might be corrupted.")
-            # Attempt to delete corrupted file so user can start fresh
             try:
                 os.remove(filePath)
             except OSError:
                 pass
-            return {} # Return empty config
-    return {} # Return empty config if file doesn't exist
+    return {}
 
-# --- Database Utilities ---
 def connectDb(dbUrl):
     global dbConnection
     try:
         dbConnection = psycopg2.connect(dbUrl)
-        dbConnection.autocommit = True # Set autocommit for simplicity here
+        dbConnection.autocommit = True
         print("Database connection successful.")
         return dbConnection
     except psycopg2.Error as e:
@@ -84,26 +78,22 @@ def closeDb():
         print("Database connection closed.")
 
 def executeQuery(query, params=None, fetch=False):
-    # Simplified query execution; lacks robust error handling & transaction mgmt
     if not dbConnection:
         messagebox.showerror("Database Error", "Not connected to the database.")
         return None
     
-    cursor = None # Initialize cursor to None
+    cursor = None
     try:
         cursor = dbConnection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cursor.execute(query, params)
         if fetch:
-            if cursor.description: # Check if the query produces results
+            if cursor.description:
                 return cursor.fetchall()
             else:
-                return [] # Return empty list for queries like INSERT without RETURNING
-        return True # Assume success for non-fetch queries
+                return []
+        return True
     except psycopg2.Error as e:
         messagebox.showerror("Database Query Error", f"Error executing query:\n{e}")
-        # Optional: Rollback if autocommit wasn't used
-        # if dbConnection:
-        #     dbConnection.rollback()
         return None
     finally:
         if cursor:
@@ -111,7 +101,6 @@ def executeQuery(query, params=None, fetch=False):
 
 def createDatabaseSchema():
     if not dbConnection: return False
-    # Split schema SQL into individual statements
     schemaSql = """
     DROP TABLE IF EXISTS GuideVideos CASCADE;
     DROP TABLE IF EXISTS Guides CASCADE;
@@ -192,44 +181,39 @@ def createDatabaseSchema():
     try:
         cursor = dbConnection.cursor()
         for command in commands:
-            if command: # Ensure command is not empty
-                 cursor.execute(command)
+            if command:
+                cursor.execute(command)
         cursor.close()
-        # No need to commit if autocommit is True
         print("Database schema created successfully.")
         return True
     except psycopg2.Error as e:
         messagebox.showerror("Schema Creation Error", f"Failed to create database schema:\n{e}")
-        # Attempt rollback if needed (though autocommit makes this complex)
         return False
 
-# --- Password Hashing ---
 def hashPassword(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    passwordBytes = password.encode('utf-8')
+    sha256Hash = hashlib.sha256(passwordBytes)
+    return sha256Hash.hexdigest()
 
-def checkPassword(plainPassword, hashedPassword):
-    # If hashedPassword is already a string (from database), decode it
-    if isinstance(hashedPassword, str):
-        hashedPassword = hashedPassword.encode('utf-8')
-    return bcrypt.checkpw(plainPassword.encode('utf-8'), hashedPassword)
+def checkPassword(plainPassword, storedHash):
+    hashed = hashPassword(plainPassword)
+    return hashed == storedHash
 
-# --- FTC Scout API ---
 def checkFtcTeamExists(teamNumber):
     try:
-        api_url = f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}"
-        print(f"API URL being called: {api_url}")  # Print the URL
-        response = requests.get(api_url)
-        print(f"Full Response: {response.text}") #Print the full response
+        apiUrl = f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}"
+        print(f"API URL being called: {apiUrl}")
+        response = requests.get(apiUrl)
+        print(f"Full Response: {response.text}")
         if response.status_code == 200:
             try:
-                team_data = response.json()
-                print(f"Team Data: {team_data}") #Print the team data
-                # Check if the response contains team data (e.g., a 'number' key)
-                if 'number' in team_data:
+                teamData = response.json()
+                print(f"Team Data: {teamData}")
+                if 'number' in teamData:
                     return True
                 else:
                     print(f"API Check Warning: Team {teamNumber} found (200 OK), but no team data in response.")
-                    return False  # Team exists but data invalid
+                    return False
             except json.JSONDecodeError:
                 print(f"API Check Warning: Could not decode JSON response for team {teamNumber}")
                 return False
@@ -237,14 +221,13 @@ def checkFtcTeamExists(teamNumber):
             return False
         else:
             print(f"API Check Warning: Received status code {response.status_code} for team {teamNumber}")
-            return False  # Treat other errors as potentially non-existent
+            return False
     except requests.RequestException as e:
         messagebox.showerror("API Error", f"Could not connect to FTC Scout API to verify team:\n{e}")
-        return False  # Cannot verify
+        return False
 
 def getFtcTeamQuickStats(teamNumber, season=CURRENT_FTC_SEASON):
-     try:
-        # Construct the URL, adding season only if specified
+    try:
         url = f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}/quick-stats"
         params = {}
         if season:
@@ -257,9 +240,9 @@ def getFtcTeamQuickStats(teamNumber, season=CURRENT_FTC_SEASON):
         elif response.status_code == 404:
             return {"error": f"Team {teamNumber} not found or has no stats for season {season}."}
         else:
-             return {"error": f"API Error: Status code {response.status_code} - {response.text}"}
-     except requests.RequestException as e:
-         return {"error": f"Could not connect to FTC Scout API: {e}"}
+            return {"error": f"API Error: Status code {response.status_code} - {response.text}"}
+    except requests.RequestException as e:
+        return {"error": f"Could not connect to FTC Scout API: {e}"}
 
 def getFtcTeamDetails(teamNumber):
     try:
@@ -269,7 +252,7 @@ def getFtcTeamDetails(teamNumber):
         elif response.status_code == 404:
             return {"error": f"Team {teamNumber} not found."}
         else:
-             return {"error": f"API Error: Status code {response.status_code} - {response.text}"}
+            return {"error": f"API Error: Status code {response.status_code} - {response.text}"}
     except requests.RequestException as e:
         return {"error": f"Could not connect to FTC Scout API: {e}"}
         
@@ -279,28 +262,22 @@ def getFtcTeamEvents(teamNumber, season=CURRENT_FTC_SEASON):
         if response.status_code == 200:
             return response.json()
         else:
-             # API returns 200 with empty list if no events, so only check for request errors
-             print(f"API Info: No events found for team {teamNumber} in season {season} or other API issue (Status: {response.status_code}).")
-             return [] # Return empty list for consistency
+            print(f"API Info: No events found for team {teamNumber} in season {season} or other API issue (Status: {response.status_code}).")
+            return []
     except requests.RequestException as e:
         return {"error": f"Could not connect to FTC Scout API: {e}"}
 
-
-# --- UI Frames ---
-
 class BaseFrame(ttk.Frame):
-    """ Base class for frames to avoid repeating controller access """
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        self.grid(row=0, column=0, sticky="nsew") # Make frame fill the window
+        self.grid(row=0, column=0, sticky="nsew")
 
     def show(self):
         self.tkraise()
-        self.onShow() # Call a specific method when frame is shown
+        self.onShow()
 
     def onShow(self):
-        # Override this method in subclasses to refresh data when frame is shown
         pass
 
 
@@ -309,23 +286,18 @@ class LoginFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Login or Setup")
 
-        # Determine initial state based on config
-        self.hasConfig = bool(dbUrlUsed) # Check if DB URL is already known
+        self.hasConfig = bool(dbUrlUsed)
 
-        # Styling
         style = ttk.Style(self)
         style.configure('Login.TButton', font=('Helvetica', 12))
         style.configure('Header.TLabel', font=('Helvetica', 18, 'bold'))
 
-        # --- Widgets ---
         headerLabel = ttk.Label(self, text="FTC Team Portal", style='Header.TLabel')
         headerLabel.pack(pady=20)
 
-        # Frame for dynamic content (Login vs Setup)
         self.contentFrame = ttk.Frame(self)
         self.contentFrame.pack(pady=10, padx=50, fill="x")
 
-        # Common fields (might be hidden/shown)
         self.dbUrlLabel = ttk.Label(self.contentFrame, text="Database URL:")
         self.dbUrlEntry = ttk.Entry(self.contentFrame, width=50)
 
@@ -335,7 +307,6 @@ class LoginFrame(BaseFrame):
         self.passwordLabel = ttk.Label(self.contentFrame, text="Password:")
         self.passwordEntry = ttk.Entry(self.contentFrame, show="*", width=30)
         
-        # Create Team specific fields
         self.teamNumberLabel = ttk.Label(self.contentFrame, text="Your Team Number:")
         self.teamNumberEntry = ttk.Entry(self.contentFrame, width=15)
         self.teamNameLabel = ttk.Label(self.contentFrame, text="Your Team Name:")
@@ -343,7 +314,6 @@ class LoginFrame(BaseFrame):
         self.teamPasswordLabel = ttk.Label(self.contentFrame, text="Create Team Password:")
         self.teamPasswordEntry = ttk.Entry(self.contentFrame, show="*", width=30)
         
-        # Action Buttons
         self.loginButton = ttk.Button(self, text="Login", command=self.attemptLogin, style='Login.TButton')
         self.showJoinButton = ttk.Button(self, text="Join a Team", command=lambda: self.showMode('join'), style='Login.TButton')
         self.showCreateButton = ttk.Button(self, text="Create a Team", command=lambda: self.showMode('create'), style='Login.TButton')
@@ -351,15 +321,11 @@ class LoginFrame(BaseFrame):
         self.createButton = ttk.Button(self, text="Create Team & Account", command=self.attemptCreateTeam, style='Login.TButton')
         self.backButton = ttk.Button(self, text="Back", command=lambda: self.showMode('initial'), style='Login.TButton')
 
-
-        # Initial layout
         self.showMode('initial')
 
     def showMode(self, mode):
-        # Clear content frame
         for widget in self.contentFrame.winfo_children():
             widget.grid_forget()
-        # Clear action buttons (pack_forget removes them visually)
         self.loginButton.pack_forget()
         self.showJoinButton.pack_forget()
         self.showCreateButton.pack_forget()
@@ -367,43 +333,44 @@ class LoginFrame(BaseFrame):
         self.createButton.pack_forget()
         self.backButton.pack_forget()
 
-        # Configure widgets based on mode
         if mode == 'initial':
             if self.hasConfig:
-                self.showMode('login') # Go directly to login if config exists
+                self.showMode('login')
             else:
-                 # Show options to join or create
                 self.showJoinButton.pack(pady=10)
                 self.showCreateButton.pack(pady=5)
         
         elif mode == 'login':
             self.dbUrlLabel.grid(row=0, column=0, padx=5, pady=5, sticky="w")
             self.dbUrlEntry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-            self.dbUrlEntry.delete(0, tk.END) # Clear previous entry
+            self.dbUrlEntry.delete(0, tk.END)
             if dbUrlUsed:
                 self.dbUrlEntry.insert(0, dbUrlUsed)
-                self.dbUrlEntry.config(state="readonly") # Don't let user change if loaded from config
+                self.dbUrlEntry.config(state="readonly")
             else:
                 self.dbUrlEntry.config(state="normal")
-                self.dbUrlLabel.grid_remove() # Hide DB URL if not pre-configured (shouldn't happen in login mode ideally)
+                self.dbUrlLabel.grid_remove()
                 self.dbUrlEntry.grid_remove()
-
 
             self.usernameLabel.grid(row=1, column=0, padx=5, pady=5, sticky="w")
             self.usernameEntry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
             self.passwordLabel.grid(row=2, column=0, padx=5, pady=5, sticky="w")
             self.passwordEntry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-            self.contentFrame.grid_columnconfigure(1, weight=1) # Make entry expand
+            self.contentFrame.grid_columnconfigure(1, weight=1)
+
+            config = loadConfig()
+            if config and "username" in config:
+                self.usernameEntry.delete(0, tk.END)
+                self.usernameEntry.insert(0, config["username"])
 
             self.loginButton.pack(pady=20)
-            if not self.hasConfig: # Allow going back if config wasn't loaded initially
-                 self.backButton.pack(pady=5)
-
+            if not self.hasConfig:
+                self.backButton.pack(pady=5)
 
         elif mode == 'join':
             self.dbUrlLabel.grid(row=0, column=0, padx=5, pady=5, sticky="w")
             self.dbUrlEntry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-            self.dbUrlEntry.config(state="normal") # User must enter URL to join
+            self.dbUrlEntry.config(state="normal")
             self.dbUrlEntry.delete(0, tk.END)
 
             self.usernameLabel.grid(row=1, column=0, padx=5, pady=5, sticky="w")
@@ -416,17 +383,14 @@ class LoginFrame(BaseFrame):
             self.backButton.pack(pady=5)
             
         elif mode == 'create':
-            # Admin User details
             self.usernameLabel.grid(row=0, column=0, padx=5, pady=5, sticky="w")
             self.usernameEntry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
             self.passwordLabel.grid(row=1, column=0, padx=5, pady=5, sticky="w")
             self.passwordEntry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-            # DB URL
             self.dbUrlLabel.grid(row=2, column=0, padx=5, pady=5, sticky="w")
             self.dbUrlEntry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
             self.dbUrlEntry.config(state="normal")
             self.dbUrlEntry.delete(0, tk.END)
-             # Team details
             self.teamNumberLabel.grid(row=3, column=0, padx=5, pady=5, sticky="w")
             self.teamNumberEntry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
             self.teamNameLabel.grid(row=4, column=0, padx=5, pady=5, sticky="w")
@@ -444,7 +408,6 @@ class LoginFrame(BaseFrame):
         
         username = self.usernameEntry.get().strip()
         password = self.passwordEntry.get()
-        # Use pre-loaded dbUrlUsed if available, else get from entry (fallback, less ideal)
         targetDbUrl = dbUrlUsed or self.dbUrlEntry.get().strip() 
 
         if not username or not password:
@@ -452,14 +415,12 @@ class LoginFrame(BaseFrame):
             return
             
         if not targetDbUrl:
-             messagebox.showwarning("Login Failed", "Database URL is required.")
-             return
+            messagebox.showwarning("Login Failed", "Database URL is required.")
+            return
 
-        # Connect using the determined URL
         if not connectDb(targetDbUrl):
-            return # Connection failed, error message shown in connectDb
+            return
 
-        # Check user credentials
         query = "SELECT user_id, username, hashed_password, is_pending, is_admin, role_id FROM Users WHERE username = %s"
         result = executeQuery(query, (username,), fetch=True)
 
@@ -467,15 +428,12 @@ class LoginFrame(BaseFrame):
             userData = result[0]
             storedHash = userData['hashed_password']
             
-            # Check password first
             if checkPassword(password, storedHash):
-                # Check if account is pending approval
                 if userData['is_pending']:
                     messagebox.showinfo("Login Pending", "Your account is awaiting admin approval.")
-                    closeDb() # Close connection after check
+                    closeDb()
                     return
                 else:
-                    # Login successful!
                     currentUser = {
                         'user_id': userData['user_id'],
                         'username': userData['username'],
@@ -483,21 +441,18 @@ class LoginFrame(BaseFrame):
                         'role_id': userData['role_id']
                     }
                     
-                    # Fetch team info
                     teamResult = executeQuery("SELECT team_number, team_name FROM TeamInfo LIMIT 1", fetch=True)
                     if teamResult:
                         teamInfo = dict(teamResult[0])
                     else:
-                        # This should not happen if setup was correct
                         messagebox.showerror("Login Error", "Could not retrieve team information from the database.")
                         closeDb()
                         currentUser = None
                         return
 
-                    # Save config if login was successful with a potentially new URL
                     if not self.hasConfig:
                         saveConfig({"dbUrl": targetDbUrl})
-                        dbUrlUsed = targetDbUrl # Update global state
+                        dbUrlUsed = targetDbUrl
 
                     print(f"Login successful for user: {currentUser['username']}")
                     self.controller.showFrame("DashboardFrame")
@@ -519,18 +474,13 @@ class LoginFrame(BaseFrame):
             messagebox.showwarning("Join Failed", "Username, password, and Database URL are required.")
             return
         
-        # Basic URL validation (can be improved)
-        # Improved regex to allow more characters in username/password
         if not re.match(r"postgresql://[^@]+@[^/]+/.+", targetDbUrl):
             messagebox.showwarning("Join Failed", "Invalid PostgreSQL Database URL format.\nExample: postgresql://user:password@host:port/database")
             return
 
-        # Connect to the *potential* team's DB to add the user request
         if not connectDb(targetDbUrl):
-             # Error shown in connectDb
              return 
              
-        # Check if username already exists
         checkQuery = "SELECT user_id FROM Users WHERE username = %s"
         existing = executeQuery(checkQuery, (username,), fetch=True)
         if existing:
@@ -538,7 +488,6 @@ class LoginFrame(BaseFrame):
              closeDb()
              return
 
-        # Hash password and insert user as pending
         hashedPass = hashPassword(password)
         insertQuery = """
             INSERT INTO Users (username, hashed_password, is_pending, is_admin) 
@@ -547,16 +496,12 @@ class LoginFrame(BaseFrame):
         result = executeQuery(insertQuery, (username, hashedPass), fetch=True)
 
         if result:
-            # Successfully added request
             messagebox.showinfo("Join Request Sent", "Your request to join the team has been sent.\nAn administrator must approve your account before you can log in.")
-            # Optionally save config now, or wait until first successful login?
-            # Let's save it now, so next time they open the app, it tries this DB.
             saveConfig({"dbUrl": targetDbUrl})
-            dbUrlUsed = targetDbUrl # Update global state
+            dbUrlUsed = targetDbUrl
             closeDb()
-            self.showMode('login') # Go back to login screen
+            self.showMode('login')
         else:
-             # Error message shown by executeQuery
              messagebox.showerror("Join Failed", "Could not submit join request. Please check the Database URL and try again.")
              closeDb()
 
@@ -569,9 +514,8 @@ class LoginFrame(BaseFrame):
         targetDbUrl = self.dbUrlEntry.get().strip()
         teamNumberStr = self.teamNumberEntry.get().strip()
         teamName = self.teamNameEntry.get().strip()
-        teamPassword = self.teamPasswordEntry.get() # Team password (purpose needs clarification, maybe for future features?)
+        teamPassword = self.teamPasswordEntry.get()
 
-        # --- Validations ---
         if not (adminUsername and adminPassword and targetDbUrl and teamNumberStr and teamName and teamPassword):
             messagebox.showwarning("Creation Failed", "All fields are required to create a team.")
             return
@@ -586,43 +530,34 @@ class LoginFrame(BaseFrame):
             messagebox.showwarning("Creation Failed", "Team Number must be a valid integer.")
             return
             
-        # --- Check FTC Scout API ---
         if not checkFtcTeamExists(teamNumber):
             if not messagebox.askyesno("Team Not Found", f"Team number {teamNumber} was not found via the FTC Scout API. This might be an error or the team is new.\n\nDo you want to proceed anyway?"):
-                 return # User chose not to proceed
+                 return
 
-        # --- Connect and Setup Database ---
         if not connectDb(targetDbUrl):
-            return # Error shown in connectDb
+            return
             
-        # Check if TeamInfo already exists (means DB is likely already set up)
         checkTeamInfo = executeQuery("SELECT 1 FROM TeamInfo LIMIT 1", fetch=True)
         if checkTeamInfo:
              if not messagebox.askyesno("Database Not Empty", "This database appears to already contain team data.\nContinuing will WIPE existing data and set up a new team.\n\nAre you absolutely sure you want to proceed?"):
                  closeDb()
                  return
-             # If they proceed, schema creation will handle dropping tables
-
-        # Create the database schema (includes dropping existing tables)
+            
         if not createDatabaseSchema():
             closeDb()
-            return # Error shown in createDatabaseSchema
+            return
 
-        # --- Add Team Info and Admin User ---
         try:
             cursor = dbConnection.cursor()
             
-            # Insert Team Info
             hashedTeamPass = hashPassword(teamPassword)
             cursor.execute("INSERT INTO TeamInfo (team_number, team_name, team_password_hash) VALUES (%s, %s, %s)", 
                            (teamNumber, teamName, hashedTeamPass))
 
-            # Insert Admin User (not pending, is_admin=True)
             hashedAdminPass = hashPassword(adminPassword)
-            # Get Admin role ID (assuming it was created by schema script)
             cursor.execute("SELECT role_id FROM Roles WHERE role_name = 'Admin'")
             adminRoleResult = cursor.fetchone()
-            adminRoleId = adminRoleResult[0] if adminRoleResult else None # Handle case where 'Admin' role might not exist
+            adminRoleId = adminRoleResult[0] if adminRoleResult else None
 
             cursor.execute("""
                 INSERT INTO Users (username, hashed_password, is_pending, is_admin, role_id) 
@@ -631,10 +566,8 @@ class LoginFrame(BaseFrame):
             
             adminUserData = cursor.fetchone()
             cursor.close()
-            # dbConnection.commit() # Not needed if autocommit=True
 
             if adminUserData:
-                 # Team and Admin created successfully!
                  currentUser = {
                      'user_id': adminUserData[0],
                      'username': adminUserData[1],
@@ -643,67 +576,59 @@ class LoginFrame(BaseFrame):
                  }
                  teamInfo = {'team_number': teamNumber, 'team_name': teamName}
 
-                 # Save config
                  saveConfig({"dbUrl": targetDbUrl})
-                 dbUrlUsed = targetDbUrl # Update global state
+                 dbUrlUsed = targetDbUrl
 
                  messagebox.showinfo("Team Created", f"Team '{teamName}' ({teamNumber}) created successfully!\nYou are logged in as the administrator.")
                  self.controller.showFrame("DashboardFrame")
             else:
                  messagebox.showerror("Creation Failed", "Failed to create the administrator user account.")
-                 closeDb() # Close connection as setup failed partially
+                 closeDb()
         
         except psycopg2.Error as e:
              messagebox.showerror("Creation Error", f"An error occurred during team creation:\n{e}")
-             # Attempt rollback if needed
              closeDb()
 
 
 # --- Main Application Window ---
 class FtcPortalApp(ThemedTk):
     def __init__(self, *args, **kwargs):
-        # Use ThemedTk for ttkthemes integration
         super().__init__(*args, **kwargs)
-        self.set_theme("arc") # Apply the 'park' theme
+        self.set_theme("arc")
 
-        # Make the window fullscreen
         self.attributes('-fullscreen', True)
-        self.bind('<Escape>', lambda e: self.quitFullscreen()) # Allow Esc to exit fullscreen
+        self.bind('<Escape>', lambda e: self.quitFullscreen())
 
         self.title("FTC Portal")
-        # Configure the main window grid
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Container frame to hold all pages
         container = ttk.Frame(self)
         container.grid(row=0, column=0, sticky="nsew")
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
-        self.frames = {} # Dictionary to hold all frames/pages
+        self.frames = {}
 
-        # Initialize all frames
-        for F in (LoginFrame, DashboardFrame, AttendanceFrame, ScoutingFrame, GuidesFrame, SettingsFrame, AdminFrame): # Add other frames here
+        for F in (LoginFrame, DashboardFrame, AttendanceFrame, ScoutingFrame, GuidesFrame, SettingsFrame, AdminFrame):
             pageName = F.__name__
             frame = F(parent=container, controller=self)
             self.frames[pageName] = frame
-            # Frames grid themselves in their __init__
 
         print("Frames initialized:", list(self.frames.keys()))
 
-        # Load configuration and show initial frame
-        loadConfig() # This sets dbUrlUsed if available
-        self.showFrame("LoginFrame") # Always start at login/setup
+        config = loadConfig()
+        if dbUrlUsed and currentUser and "username" in currentUser:
+            self.showFrame("LoginFrame")
+        else:
+            self.showFrame("LoginFrame")
 
 
     def showFrame(self, pageName):
-        '''Show a frame for the given page name'''
         if pageName not in self.frames:
             print(f"Error: Frame '{pageName}' not found.")
             return
         frame = self.frames[pageName]
-        # Ensure the frame's onShow method is called to refresh data
         if hasattr(frame, 'onShow') and callable(frame.onShow):
             frame.onShow() 
         frame.tkraise()
@@ -715,14 +640,12 @@ class FtcPortalApp(ThemedTk):
         global currentUser, teamInfo, dbConnection
         if dbConnection:
             closeDb()
-        currentUser = None
+        if currentUser:
+            currentUser = {"username": currentUser.get("username", "")}
         teamInfo = None
-        # Do not clear dbUrlUsed from global state, keep it for next login
-        # Config file remains unchanged unless explicitly modified elsewhere
-        self.showFrame("LoginFrame") # Go back to login screen
+        self.showFrame("LoginFrame")
         
     def getDbConnection(self):
-        # Provide access to the connection if needed by frames, but prefer specific db functions
         return dbConnection
         
     def getCurrentUser(self):
@@ -738,37 +661,28 @@ class DashboardFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Dashboard")
         
-        # Sidebar Frame
         self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1) # Push logout down
+        self.sidebar.grid_rowconfigure(6, weight=1)
 
-        # Main Content Frame
         self.mainContent = ttk.Frame(self)
         self.mainContent.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        self.grid_columnconfigure(1, weight=1) # Allow main content to expand
+        self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- Sidebar Buttons ---
         ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        # Admin button only if user is admin
         self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
-        # Logout button at the bottom
         ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
 
-
-        # --- Main Content Area ---
         self.welcomeLabel = ttk.Label(self.mainContent, text="Hello, ", font=("Helvetica", 16))
         self.welcomeLabel.pack(pady=20, anchor="w", padx=20)
 
-        # Bubble Frame for Team Stats
         statsFrame = ttk.Frame(self.mainContent, style='Card.TFrame', padding=20, relief=tk.GROOVE, borderwidth=2)
         statsFrame.pack(pady=20, padx=50, fill="x")
-        # Add rounded corners visually via style if theme supports it, or just use padding/relief
 
         self.teamNameLabel = ttk.Label(statsFrame, text="Team Name: ", font=("Helvetica", 12))
         self.teamNameLabel.grid(row=0, column=0, sticky="w", pady=5)
@@ -778,13 +692,11 @@ class DashboardFrame(BaseFrame):
         self.teammateCountLabel.grid(row=2, column=0, sticky="w", pady=5)
 
      def onShow(self):
-        # This method is called by controller.showFrame()
         self.controller.title("FTC Portal - Dashboard")
         userInfo = self.controller.getCurrentUser()
         teamData = self.controller.getTeamInfo()
 
         if not userInfo:
-            # Should not happen if navigation is correct, but handle defensively
             self.controller.showFrame("LoginFrame")
             return
             
@@ -797,14 +709,12 @@ class DashboardFrame(BaseFrame):
              self.teamNameLabel.config(text="Team Name: Error loading")
              self.teamNumberLabel.config(text="Team Number: Error loading")
 
-        # Fetch teammate count (non-pending users)
         countResult = executeQuery("SELECT COUNT(user_id) FROM Users WHERE is_pending = FALSE", fetch=True)
         if countResult:
              self.teammateCountLabel.config(text=f"Active Teammates: {countResult[0]['count']}")
         else:
              self.teammateCountLabel.config(text="Active Teammates: Error loading")
              
-        # Show/Hide Admin Button
         if userInfo.get('is_admin'):
              self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
         else:
@@ -816,7 +726,6 @@ class AttendanceFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Attendance")
         
-        # Sidebar (copied from Dashboard for consistent navigation)
         self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
         self.sidebar.grid_rowconfigure(6, weight=1) 
@@ -829,27 +738,19 @@ class AttendanceFrame(BaseFrame):
         self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
         ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
 
-        # Main Content Frame
         self.mainContent = ttk.Frame(self)
         self.mainContent.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         
-        # Admin Action Button (Create Meeting) - Placed at the top
         self.createMeetingButton = ttk.Button(self.mainContent, text="Create New Meeting", command=self.openCreateMeetingDialog)
-        # Button visibility managed in onShow
 
-        # Frame to hold the attendance list
         self.attendanceListFrame = ttk.Frame(self.mainContent)
         self.attendanceListFrame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        # Use a Text widget or labels in a grid for displaying attendance
-        # Using labels in a grid for better control over formatting
-        # Header
         ttk.Label(self.attendanceListFrame, text="Teammate", font=("Helvetica", 12, "bold")).grid(row=0, column=0, padx=10, pady=5, sticky="w")
         ttk.Label(self.attendanceListFrame, text="Attendance (Present/Absent)", font=("Helvetica", 12, "bold")).grid(row=0, column=1, padx=10, pady=5, sticky="w")
         
-        # Placeholder for dynamic content rows
         self.attendanceRows = []
 
 
@@ -860,35 +761,30 @@ class AttendanceFrame(BaseFrame):
              self.controller.showFrame("LoginFrame")
              return
 
-        # Show/Hide Admin Button based on user privileges
         if userInfo.get('is_admin'):
-             self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5) # Sidebar admin button
-             self.createMeetingButton.pack(pady=10, padx=10, anchor="ne") # Show create meeting button
+             self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
+             self.createMeetingButton.pack(pady=10, padx=10, anchor="ne")
         else:
-             self.adminButton.grid_remove() # Sidebar admin button
-             self.createMeetingButton.pack_forget() # Hide create meeting button
+             self.adminButton.grid_remove()
+             self.createMeetingButton.pack_forget()
 
         self.loadAttendanceData()
 
     def loadAttendanceData(self):
-         # Clear previous rows
         for widget in self.attendanceRows:
             widget.destroy()
         self.attendanceRows = []
 
-        # Fetch all non-pending users
         usersQuery = "SELECT user_id, username FROM Users WHERE is_pending = FALSE ORDER BY username"
         users = executeQuery(usersQuery, fetch=True)
         
-        if users is None: # Error occurred during fetch
+        if users is None:
              ttk.Label(self.attendanceListFrame, text="Error loading user data.").grid(row=1, column=0, columnspan=2)
              return
         if not users:
             ttk.Label(self.attendanceListFrame, text="No active users found.").grid(row=1, column=0, columnspan=2)
             return
 
-        # Fetch all attendance records
-        # This could be optimized by fetching counts per user directly in SQL
         attendanceQuery = """
             SELECT user_id, is_present, COUNT(*) as count 
             FROM Attendance 
@@ -896,7 +792,7 @@ class AttendanceFrame(BaseFrame):
         """
         attendanceDataRaw = executeQuery(attendanceQuery, fetch=True)
         
-        attendanceCounts = {} # {user_id: {'present': count, 'absent': count}}
+        attendanceCounts = {}
         if attendanceDataRaw:
              for record in attendanceDataRaw:
                  uid = record['user_id']
@@ -907,7 +803,6 @@ class AttendanceFrame(BaseFrame):
                  else:
                      attendanceCounts[uid]['absent'] = record['count']
 
-        # Display each user and their stats
         for i, user in enumerate(users):
             userId = user['user_id']
             username = user['username']
@@ -916,11 +811,9 @@ class AttendanceFrame(BaseFrame):
             presentCount = stats['present']
             absentCount = stats['absent']
 
-            # Create labels for this row
             nameLabel = ttk.Label(self.attendanceListFrame, text=username)
             nameLabel.grid(row=i + 1, column=0, padx=10, pady=2, sticky="w")
             
-            # Use a frame to hold the colored numbers
             statFrame = ttk.Frame(self.attendanceListFrame)
             statFrame.grid(row=i + 1, column=1, padx=10, pady=2, sticky="w")
 
@@ -931,16 +824,15 @@ class AttendanceFrame(BaseFrame):
             absentLabel = ttk.Label(statFrame, text=str(absentCount), foreground="red", font=("Helvetica", 10, "bold"))
             absentLabel.pack(side=tk.LEFT)
 
-            self.attendanceRows.extend([nameLabel, statFrame]) # Keep track to clear later
+            self.attendanceRows.extend([nameLabel, statFrame])
 
 
     def openCreateMeetingDialog(self):
-        # Custom dialog using Toplevel
         dialog = tk.Toplevel(self)
         dialog.title("Create New Meeting")
-        dialog.geometry("450x400") # Adjust size as needed
-        dialog.transient(self) # Keep dialog on top of main window
-        dialog.grab_set() # Modal behavior
+        dialog.geometry("450x400")
+        dialog.transient(self)
+        dialog.grab_set()
 
         ttk.Label(dialog, text="Meeting Title:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
         titleEntry = ttk.Entry(dialog, width=40)
@@ -952,10 +844,9 @@ class AttendanceFrame(BaseFrame):
 
         ttk.Label(dialog, text="Attendees:").grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="w")
 
-        # Frame for the listbox and scrollbar
         listFrame = ttk.Frame(dialog)
         listFrame.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
-        dialog.grid_rowconfigure(3, weight=1) # Allow list frame to expand
+        dialog.grid_rowconfigure(3, weight=1)
         listFrame.grid_columnconfigure(0, weight=1)
 
         scrollbar = ttk.Scrollbar(listFrame, orient=tk.VERTICAL)
@@ -966,16 +857,14 @@ class AttendanceFrame(BaseFrame):
         attendeeListbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
 
-        # Populate listbox with active users
         usersQuery = "SELECT user_id, username FROM Users WHERE is_pending = FALSE ORDER BY username"
         users = executeQuery(usersQuery, fetch=True)
-        userIdMap = {} # To map listbox index back to user_id
+        userIdMap = {}
         if users:
             for i, user in enumerate(users):
                 attendeeListbox.insert(tk.END, user['username'])
                 userIdMap[i] = user['user_id']
 
-        # Save Button Action
         def saveMeeting():
             title = titleEntry.get().strip()
             description = descText.get("1.0", tk.END).strip()
@@ -987,9 +876,8 @@ class AttendanceFrame(BaseFrame):
 
             if not selectedIndices:
                  if not messagebox.askyesno("No Attendees", "No attendees selected. Record meeting with zero attendance?", parent=dialog):
-                     return # User chose not to proceed
+                     return
 
-            # Insert into Meetings table
             meetingInsertQuery = "INSERT INTO Meetings (title, description) VALUES (%s, %s) RETURNING meeting_id"
             meetingResult = executeQuery(meetingInsertQuery, (title, description), fetch=True)
 
@@ -999,7 +887,6 @@ class AttendanceFrame(BaseFrame):
                  
             meetingId = meetingResult[0]['meeting_id']
             
-            # Insert into Attendance table for each selected user
             allUserIds = [user['user_id'] for user in users] if users else []
             presentUserIds = {userIdMap[idx] for idx in selectedIndices}
 
@@ -1009,29 +896,26 @@ class AttendanceFrame(BaseFrame):
                 attendanceValues = []
                 for uid in allUserIds:
                     isPresent = (uid in presentUserIds)
-                    # Format: (user_id, meeting_id, is_present)
                     attendanceValues.append( (uid, meetingId, isPresent) )
                 
-                # Use execute_values for efficient bulk insert
                 insertAttendanceQuery = "INSERT INTO Attendance (user_id, meeting_id, is_present) VALUES %s"
                 psycopg2.extras.execute_values(cursor, insertAttendanceQuery, attendanceValues)
                 
                 cursor.close()
-                # dbConnection.commit() # If not using autocommit
                 
             except psycopg2.Error as e:
                 messagebox.showerror("Database Error", f"Failed to record attendance:\n{e}", parent=dialog)
                 success = False
-                 # Consider deleting the meeting record if attendance fails? Or leave it?
+                
+                # Consider deleting the meeting record if attendance fails? Or leave it?
                 # Optional: executeQuery("DELETE FROM Meetings WHERE meeting_id = %s", (meetingId,))
 
             if success:
                 messagebox.showinfo("Success", "Meeting and attendance recorded.", parent=dialog)
                 dialog.destroy()
-                self.loadAttendanceData() # Refresh the main attendance view
+                self.loadAttendanceData()
             
 
-        # Buttons
         buttonFrame = ttk.Frame(dialog)
         buttonFrame.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(buttonFrame, text="Save Meeting", command=saveMeeting).pack(side=tk.LEFT, padx=10)
@@ -1043,7 +927,6 @@ class ScoutingFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Scouting")
         
-        # Sidebar (consistent navigation)
         self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
         self.sidebar.grid_rowconfigure(6, weight=1)
@@ -1056,13 +939,11 @@ class ScoutingFrame(BaseFrame):
         self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
         ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
 
-        # Main Content Frame
         self.mainContent = ttk.Frame(self)
         self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         
-        # --- Own Team Info Area ---
         ownTeamFrame = ttk.LabelFrame(self.mainContent, text="Your Team's Stats", padding=10)
         ownTeamFrame.pack(pady=10, padx=5, fill="x")
 
@@ -1072,13 +953,12 @@ class ScoutingFrame(BaseFrame):
         self.teamStatsLabel = ttk.Label(ownTeamFrame, text="Fetching quick stats...", wraplength=600, justify=tk.LEFT)
         self.teamStatsLabel.pack(pady=5, anchor="w")
 
-        # --- Query Box (Placeholder for future expansion) ---
         queryFrame = ttk.LabelFrame(self.mainContent, text="Query Other Teams/Events (Future Feature)", padding=10)
         queryFrame.pack(pady=20, padx=5, fill="x")
         ttk.Label(queryFrame, text="Enter Team # or Event Code:").grid(row=0, column=0, padx=5, pady=5)
         self.queryEntry = ttk.Entry(queryFrame, width=30)
         self.queryEntry.grid(row=0, column=1, padx=5, pady=5)
-        self.queryButton = ttk.Button(queryFrame, text="Query API (Not Implemented)") # Add command later
+        self.queryButton = ttk.Button(queryFrame, text="Query API (Not Implemented)")
         self.queryButton.grid(row=0, column=2, padx=5, pady=5)
         self.queryResultsText = tk.Text(queryFrame, height=10, width=70, state=tk.DISABLED)
         self.queryResultsText.grid(row=1, column=0, columnspan=3, pady=10, padx=5)
@@ -1092,13 +972,11 @@ class ScoutingFrame(BaseFrame):
              self.controller.showFrame("LoginFrame")
              return
         
-        # Show/Hide Admin Button
         if userInfo.get('is_admin'):
              self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
         else:
              self.adminButton.grid_remove()
 
-        # Fetch and display own team's data
         teamNumber = teamData.get('team_number')
         if teamNumber:
             self.loadOwnTeamData(teamNumber)
@@ -1108,18 +986,16 @@ class ScoutingFrame(BaseFrame):
 
 
     def loadOwnTeamData(self, teamNumber):
-        # Fetch General Details
         details = getFtcTeamDetails(teamNumber)
         detailsText = f"Team Number: {details.get('teamNumber', 'N/A')}\n"
         detailsText += f"Team Name: {details.get('name', 'N/A')}\n"
         detailsText += f"Organization: {details.get('organization', 'N/A')}\n"
         detailsText += f"Location: {details.get('city', '')}, {details.get('stateProv', '')}, {details.get('country', '')}\n"
         detailsText += f"Rookie Year: {details.get('rookieYear', 'N/A')}\n"
-        # Sponsors might be a list or missing, handle gracefully
         sponsors = details.get('sponsors') 
         if isinstance(sponsors, list):
              detailsText += f"Sponsors: {', '.join(sponsors) if sponsors else 'N/A'}"
-        elif sponsors: # Handle if it's a single string (unlikely based on API hints but safe)
+        elif sponsors:
             detailsText += f"Sponsors: {sponsors}"
         else:
             detailsText += "Sponsors: N/A"
@@ -1129,12 +1005,11 @@ class ScoutingFrame(BaseFrame):
         else:
              self.teamDetailsLabel.config(text=detailsText)
 
-        # Fetch Quick Stats for current season
-        stats = getFtcTeamQuickStats(teamNumber) # Defaults to current season
+        stats = getFtcTeamQuickStats(teamNumber)
         statsText = f"Quick Stats (Season {stats.get('season', CURRENT_FTC_SEASON)}):\n"
         if "error" in stats:
             statsText += f"Error loading stats: {stats['error']}"
-        elif not stats: # Empty response
+        elif not stats:
              statsText += "No quick stats found for the current season."
         else:
              statsText += f"  OPR: {stats.get('opr', 'N/A'):.2f}\n"
@@ -1144,27 +1019,15 @@ class ScoutingFrame(BaseFrame):
              statsText += f"  Losses: {stats.get('losses', 'N/A')}\n"
              statsText += f"  Ties: {stats.get('ties', 'N/A')}\n"
              statsText += f"  Average Rank: {stats.get('rank', 'N/A'):.2f}\n"
-             # Note: 'rank' in quick stats is average rank across events
 
         self.teamStatsLabel.config(text=statsText)
         
-        # --- Find Latest Event Performance (Requires another call) ---
-        # This adds complexity, keep it simple for now or add later.
-        # events = getFtcTeamEvents(teamNumber) # Defaults to current season
-        # if events and "error" not in events and len(events) > 0:
-        #      # Sort events by date? API doesn't guarantee order. Find latest event based on Event data?
-        #      latestEvent = events[-1] # Assuming last is latest - needs verification
-        #      # Extract performance from latestEvent['stats']
-        # else: # Handle error or no events
-
 
 class GuidesFrame(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
-        # ... (Setup sidebar and main content frame similar to AttendanceFrame) ...
         self.controller.title("FTC Portal - Guides")
         
-        # Sidebar (consistent navigation)
         self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
         self.sidebar.grid_rowconfigure(6, weight=1)
@@ -1177,58 +1040,46 @@ class GuidesFrame(BaseFrame):
         self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
         ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
 
-        # Main Content Frame
         self.mainContent = ttk.Frame(self)
         self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1) # Allow content row to expand
-
-        # --- Top Action Bar ---
+        self.grid_rowconfigure(0, weight=1)
+        
         actionBar = ttk.Frame(self.mainContent)
         actionBar.pack(fill="x", pady=5)
         self.createTopicButton = ttk.Button(actionBar, text="Create New Guide Topic", command=self.createGuideTopic)
         self.createTopicButton.pack(side=tk.LEFT, padx=5)
-        # Add Video button will be shown dynamically when viewing a topic
         self.addVideoButton = ttk.Button(actionBar, text="Add Video to Topic", command=self.addVideoToGuide)
-        # Back button to return from video view to topic list
         self.backToTopicsButton = ttk.Button(actionBar, text="< Back to Topics", command=self.showTopicsView)
 
-        # --- Dynamic Content Area ---
-        # Use frames to switch between topic list and video list
         self.topicsFrame = ttk.Frame(self.mainContent)
         self.topicsFrame.pack(fill="both", expand=True)
         
         self.videosFrame = ttk.Frame(self.mainContent)
-        # videosFrame is packed when needed
 
-        # --- Topics View Widgets (within topicsFrame) ---
         ttk.Label(self.topicsFrame, text="Guide Topics", font=("Helvetica", 14, "bold")).pack(pady=10)
         
-        # Use Treeview for a structured list
         self.topicsTree = ttk.Treeview(self.topicsFrame, columns=("topic"), show="headings")
         self.topicsTree.heading("topic", text="Topic Name")
         self.topicsTree.pack(fill="both", expand=True, padx=10, pady=5)
-        self.topicsTree.bind("<Double-1>", self.onTopicDoubleClick) # Double click to view
+        self.topicsTree.bind("<Double-1>", self.onTopicDoubleClick)
         
-        # Add a "View Guide" button as well? Or rely on double-click?
         viewButton = ttk.Button(self.topicsFrame, text="View Selected Guide", command=self.viewSelectedGuide)
         viewButton.pack(pady=5)
 
 
-        # --- Videos View Widgets (within videosFrame) ---
         self.videoTopicLabel = ttk.Label(self.videosFrame, text="Videos for: ", font=("Helvetica", 14, "bold"))
         self.videoTopicLabel.pack(pady=10)
 
         self.videosTree = ttk.Treeview(self.videosFrame, columns=("title", "url"), show="headings")
         self.videosTree.heading("title", text="Video Title")
         self.videosTree.heading("url", text="URL")
-        self.videosTree.column("url", width=300) # Adjust width
+        self.videosTree.column("url", width=300)
         self.videosTree.pack(fill="both", expand=True, padx=10, pady=5)
-        # Maybe add a button to open URL in browser?
         openUrlButton = ttk.Button(self.videosFrame, text="Open Selected URL", command=self.openSelectedVideoUrl)
         openUrlButton.pack(pady=5)
         
-        self.currentGuideId = None # Store the ID of the guide being viewed
+        self.currentGuideId = None
 
 
     def onShow(self):
@@ -1238,22 +1089,19 @@ class GuidesFrame(BaseFrame):
              self.controller.showFrame("LoginFrame")
              return
              
-        # Show/Hide Admin Button
         if userInfo.get('is_admin'):
              self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
         else:
              self.adminButton.grid_remove()
 
-        self.showTopicsView() # Default to showing the list of topics
+        self.showTopicsView()
 
 
     def showTopicsView(self):
-         # Configure action bar for topics view
         self.createTopicButton.pack(side=tk.LEFT, padx=5)
         self.addVideoButton.pack_forget()
         self.backToTopicsButton.pack_forget()
 
-        # Show topics frame, hide videos frame
         self.videosFrame.pack_forget()
         self.topicsFrame.pack(fill="both", expand=True)
         self.loadGuideTopics()
@@ -1261,12 +1109,10 @@ class GuidesFrame(BaseFrame):
     def showVideosView(self, guideId, guideName):
         self.currentGuideId = guideId
         
-        # Configure action bar for videos view
         self.createTopicButton.pack_forget()
         self.addVideoButton.pack(side=tk.LEFT, padx=5)
         self.backToTopicsButton.pack(side=tk.LEFT, padx=5)
         
-        # Show videos frame, hide topics frame
         self.topicsFrame.pack_forget()
         self.videosFrame.pack(fill="both", expand=True)
         
@@ -1275,7 +1121,6 @@ class GuidesFrame(BaseFrame):
 
 
     def loadGuideTopics(self):
-        # Clear existing topics
         for item in self.topicsTree.get_children():
             self.topicsTree.delete(item)
 
@@ -1284,9 +1129,8 @@ class GuidesFrame(BaseFrame):
 
         if topics:
             for topic in topics:
-                # Store guide_id within the item using tags or iid
                 self.topicsTree.insert("", tk.END, iid=topic['guide_id'], values=(topic['topic_name'],))
-        elif topics is None: # Indicates an error
+        elif topics is None:
              self.topicsTree.insert("", tk.END, values=("Error loading topics",))
 
 
@@ -1296,28 +1140,27 @@ class GuidesFrame(BaseFrame):
              userId = self.controller.getCurrentUser().get('user_id')
              query = "INSERT INTO Guides (topic_name, created_by_user_id) VALUES (%s, %s)"
              if executeQuery(query, (topicName.strip(), userId)):
-                 self.loadGuideTopics() # Refresh list
+                 self.loadGuideTopics()
              else:
                   messagebox.showerror("Error", "Failed to create guide topic.")
-        elif topicName is not None: # User entered empty string
+        elif topicName is not None:
              messagebox.showwarning("Input Error", "Topic name cannot be empty.")
 
     def onTopicDoubleClick(self, event):
         self.viewSelectedGuide()
 
     def viewSelectedGuide(self):
-        selectedItem = self.topicsTree.focus() # Gets the iid of the selected item
+        selectedItem = self.topicsTree.focus()
         if not selectedItem:
             messagebox.showwarning("Selection Error", "Please select a guide topic to view.")
             return
             
-        guideId = selectedItem # iid is the guide_id we stored
+        guideId = selectedItem
         topicName = self.topicsTree.item(selectedItem)['values'][0]
         self.showVideosView(guideId, topicName)
 
 
     def loadVideosForGuide(self, guideId):
-        # Clear existing videos
         for item in self.videosTree.get_children():
             self.videosTree.delete(item)
 
@@ -1334,9 +1177,8 @@ class GuidesFrame(BaseFrame):
 
 
     def addVideoToGuide(self):
-        if not self.currentGuideId: return # Should not happen if UI logic is correct
+        if not self.currentGuideId: return
 
-        # Simple dialog for URL and Title
         dialog = tk.Toplevel(self)
         dialog.title("Add Video")
         dialog.geometry("400x150")
@@ -1359,7 +1201,6 @@ class GuidesFrame(BaseFrame):
                 messagebox.showwarning("Input Error", "Video URL cannot be empty.", parent=dialog)
                 return
                 
-            # Basic URL validation (very simple)
             if not (url.startswith("http://") or url.startswith("https://")):
                  messagebox.showwarning("Input Error", "Please enter a valid URL starting with http:// or https://", parent=dialog)
                  return
@@ -1369,18 +1210,17 @@ class GuidesFrame(BaseFrame):
                 INSERT INTO GuideVideos (guide_id, video_url, video_title, added_by_user_id) 
                 VALUES (%s, %s, %s, %s)
             """
-            # Use title if provided, else None (which becomes NULL in DB)
             videoTitle = title if title else None 
             
             if executeQuery(query, (self.currentGuideId, url, videoTitle, userId)):
                 dialog.destroy()
-                self.loadVideosForGuide(self.currentGuideId) # Refresh video list
+                self.loadVideosForGuide(self.currentGuideId)
             else:
                 messagebox.showerror("Error", "Failed to add video.", parent=dialog)
 
         saveButton = ttk.Button(dialog, text="Add Video", command=saveVideo)
         saveButton.grid(row=2, column=0, columnspan=2, pady=15)
-        urlEntry.focus() # Set focus to URL entry
+        urlEntry.focus()
 
     def openSelectedVideoUrl(self):
         selectedItem = self.videosTree.focus()
@@ -1401,7 +1241,6 @@ class SettingsFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Settings")
         
-        # Sidebar (consistent navigation)
         self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
         self.sidebar.grid_rowconfigure(6, weight=1)
@@ -1414,7 +1253,6 @@ class SettingsFrame(BaseFrame):
         self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
         ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
 
-        # Main Content Frame
         self.mainContent = ttk.Frame(self)
         self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
         self.grid_columnconfigure(1, weight=1)
@@ -1422,7 +1260,6 @@ class SettingsFrame(BaseFrame):
 
         ttk.Label(self.mainContent, text="Settings", font=("Helvetica", 16, "bold")).pack(pady=10)
         ttk.Label(self.mainContent, text="Settings section is currently under daevelopment.").pack(pady=20)
-        # Add user-specific settings later (e.g., change password)
 
     def onShow(self):
         self.controller.title("FTC Portal - Settings")
@@ -1431,7 +1268,6 @@ class SettingsFrame(BaseFrame):
              self.controller.showFrame("LoginFrame")
              return
              
-        # Show/Hide Admin Button
         if userInfo.get('is_admin'):
              self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
         else:
@@ -1443,7 +1279,6 @@ class AdminFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Admin Panel")
         
-        # Sidebar (consistent navigation)
         self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
         self.sidebar.grid_rowconfigure(6, weight=1)
@@ -1453,21 +1288,17 @@ class AdminFrame(BaseFrame):
         ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        # Admin button always shown here as it's the admin panel itself
         ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame")).grid(row=5, column=0, sticky="ew", padx=5, pady=5)
         ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
 
-        # Main Content Frame using Notebook (Tabs)
         self.mainContent = ttk.Notebook(self)
         self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- User Management Tab ---
         self.userMgmtTab = ttk.Frame(self.mainContent, padding=10)
         self.mainContent.add(self.userMgmtTab, text='User Management')
         
-        # Pending Users Section
         pendingFrame = ttk.LabelFrame(self.userMgmtTab, text="Pending Join Requests", padding=10)
         pendingFrame.pack(fill="x", pady=10)
         
@@ -1482,7 +1313,6 @@ class AdminFrame(BaseFrame):
         ttk.Button(pendingActionsFrame, text="Approve Selected", command=self.approveSelectedUser).pack(pady=5, fill="x")
         ttk.Button(pendingActionsFrame, text="Reject Selected", command=self.rejectSelectedUser).pack(pady=5, fill="x")
 
-        # Active Users & Role Management Section
         activeFrame = ttk.LabelFrame(self.userMgmtTab, text="Active Users & Roles", padding=10)
         activeFrame.pack(fill="both", expand=True, pady=10)
         
@@ -1493,7 +1323,6 @@ class AdminFrame(BaseFrame):
         self.activeUsersTree.column("is_admin", width=80, anchor=tk.CENTER)
         self.activeUsersTree.pack(fill="both", expand=True, side=tk.LEFT, padx=(0, 5))
 
-        # Role assignment controls
         roleActionsFrame = ttk.Frame(activeFrame)
         roleActionsFrame.pack(side=tk.LEFT, fill="y", padx=(5,0))
         ttk.Label(roleActionsFrame, text="Assign Role:").pack(pady=(0,2))
@@ -1505,7 +1334,6 @@ class AdminFrame(BaseFrame):
         ttk.Button(roleActionsFrame, text="Remove User", command=self.removeSelectedUser).pack(pady=10, fill="x")
 
 
-        # --- Team Settings Tab ---
         self.teamSettingsTab = ttk.Frame(self.mainContent, padding=10)
         self.mainContent.add(self.teamSettingsTab, text='Team Settings')
 
@@ -1519,32 +1347,24 @@ class AdminFrame(BaseFrame):
         self.teamPwdSettingEntry.grid(row=1, column=1, padx=5, pady=10)
         ttk.Button(self.teamSettingsTab, text="Update Password", command=self.updateTeamPassword).grid(row=1, column=2, padx=10, pady=10)
         
-        # DB URL is connection info, changing it here is complex and risky.
-        # Best managed by editing the config file manually if needed.
         ttk.Label(self.teamSettingsTab, text="Database URL:", foreground="grey").grid(row=2, column=0, padx=5, pady=10, sticky="w")
         self.dbUrlSettingLabel = ttk.Label(self.teamSettingsTab, text=dbUrlUsed or "N/A", foreground="grey", wraplength=300)
         self.dbUrlSettingLabel.grid(row=2, column=1, padx=5, pady=10, sticky="w")
         ttk.Label(self.teamSettingsTab, text="(Cannot change via app)", foreground="grey").grid(row=2, column=2, padx=10, pady=10, sticky="w")
         
-        # --- Role Creation/Editing Tab (Optional Enhancement) ---
-        # self.roleMgmtTab = ttk.Frame(self.mainContent, padding=10)
-        # self.mainContent.add(self.roleMgmtTab, text='Manage Roles')
-        # Add Treeview for roles, buttons to add/edit/delete roles
-
 
     def onShow(self):
         self.controller.title("FTC Portal - Admin Panel")
         userInfo = self.controller.getCurrentUser()
-        # Double-check if user is actually admin before showing/allowing actions
         if not userInfo or not userInfo.get('is_admin'):
              messagebox.showerror("Access Denied", "You do not have permission to access the Admin Panel.")
-             self.controller.showFrame("DashboardFrame") # Redirect non-admins
+             self.controller.showFrame("DashboardFrame")
              return
 
         self.loadPendingUsers()
         self.loadActiveUsersAndRoles()
         self.loadTeamSettings()
-        self.loadAvailableRoles() # Populate combobox
+        self.loadAvailableRoles()
 
     def loadPendingUsers(self):
          for item in self.pendingUsersTree.get_children():
@@ -1589,34 +1409,32 @@ class AdminFrame(BaseFrame):
         roleNames = list(self.roleMap.keys())
         self.roleCombobox['values'] = roleNames
         if roleNames:
-            self.roleCombobox.set(roleNames[0]) # Default selection
+            self.roleCombobox.set(roleNames[0])
             
     def loadTeamSettings(self):
         teamData = self.controller.getTeamInfo()
         if teamData:
              self.teamNameSettingEntry.delete(0, tk.END)
              self.teamNameSettingEntry.insert(0, teamData.get('team_name', ''))
-             self.teamPwdSettingEntry.delete(0, tk.END) # Clear password field
+             self.teamPwdSettingEntry.delete(0, tk.END)
              self.dbUrlSettingLabel.config(text=dbUrlUsed or "N/A")
         else:
-            # Handle error - perhaps disable fields
-             self.teamNameSettingEntry.delete(0, tk.END)
-             self.teamNameSettingEntry.insert(0, "Error loading")
-             self.teamNameSettingEntry.config(state=tk.DISABLED)
-             self.teamPwdSettingEntry.config(state=tk.DISABLED)
-             # Also disable update buttons if needed
+            self.teamNameSettingEntry.delete(0, tk.END)
+            self.teamNameSettingEntry.insert(0, "Error loading")
+            self.teamNameSettingEntry.config(state=tk.DISABLED)
+            self.teamPwdSettingEntry.config(state=tk.DISABLED)
 
     def approveSelectedUser(self):
         selectedItem = self.pendingUsersTree.focus()
         if not selectedItem: return
-        userId = selectedItem # iid is user_id
+        userId = selectedItem
 
         if messagebox.askyesno("Confirm Approval", f"Approve user '{self.pendingUsersTree.item(userId)['values'][0]}'?"):
              query = "UPDATE Users SET is_pending = FALSE WHERE user_id = %s AND is_pending = TRUE"
              if executeQuery(query, (userId,)):
                  messagebox.showinfo("Success", "User approved.")
-                 self.loadPendingUsers() # Refresh pending list
-                 self.loadActiveUsersAndRoles() # Refresh active list
+                 self.loadPendingUsers()
+                 self.loadActiveUsersAndRoles()
              else:
                  messagebox.showerror("Error", "Failed to approve user.")
 
@@ -1630,7 +1448,7 @@ class AdminFrame(BaseFrame):
              query = "DELETE FROM Users WHERE user_id = %s AND is_pending = TRUE"
              if executeQuery(query, (userId,)):
                   messagebox.showinfo("Success", "User request rejected and removed.")
-                  self.loadPendingUsers() # Refresh list
+                  self.loadPendingUsers()
              else:
                   messagebox.showerror("Error", "Failed to reject user.")
 
@@ -1648,14 +1466,13 @@ class AdminFrame(BaseFrame):
         userId = selectedItem
         roleId = self.roleMap.get(selectedRoleName)
         
-        if roleId is None: # Should not happen with combobox logic
+        if roleId is None:
              messagebox.showerror("Internal Error", "Selected role ID not found.")
              return
 
         query = "UPDATE Users SET role_id = %s WHERE user_id = %s"
         if executeQuery(query, (roleId, userId)):
-             # messagebox.showinfo("Success", "User role updated.") # Maybe too verbose
-             self.loadActiveUsersAndRoles() # Refresh view
+             self.loadActiveUsersAndRoles()
         else:
              messagebox.showerror("Error", "Failed to update user role.")
 
@@ -1669,17 +1486,13 @@ class AdminFrame(BaseFrame):
          username = self.activeUsersTree.item(userId)['values'][0]
          currentAdminStatus = self.activeUsersTree.item(userId)['values'][2] == "Yes"
          
-         # Prevent admin from removing their own admin status if they are the only admin?
-         # Add check here if needed: Query count of admins, if 1 and current user, prevent.
-         
          action = "Remove admin status from" if currentAdminStatus else "Grant admin status to"
          newStatus = not currentAdminStatus
          
          if messagebox.askyesno("Confirm Admin Toggle", f"{action} user '{username}'?"):
               query = "UPDATE Users SET is_admin = %s WHERE user_id = %s"
               if executeQuery(query, (newStatus, userId)):
-                   # messagebox.showinfo("Success", "User admin status updated.")
-                   self.loadActiveUsersAndRoles() # Refresh view
+                   self.loadActiveUsersAndRoles()
               else:
                    messagebox.showerror("Error", "Failed to update admin status.")
 
@@ -1694,20 +1507,15 @@ class AdminFrame(BaseFrame):
         username = self.activeUsersTree.item(userId)['values'][0]
         currentUserInfo = self.controller.getCurrentUser()
         
-        # Prevent user from removing themselves
         if currentUserInfo and currentUserInfo.get('user_id') == int(userId):
              messagebox.showerror("Action Denied", "You cannot remove your own account.")
              return
 
         if messagebox.askyesno("Confirm Removal", f"Permanently REMOVE user '{username}' and all their associated data (attendance, etc.)? This cannot be undone."):
-            # Deleting user should cascade via FOREIGN KEY constraints (ON DELETE CASCADE)
-            # If constraints are not set to cascade, manual deletion of related data is needed first.
-            # Our schema uses ON DELETE CASCADE for Attendance, so it should be okay.
-            # Guides/Videos use ON DELETE SET NULL for creator/adder ID.
             query = "DELETE FROM Users WHERE user_id = %s"
             if executeQuery(query, (userId,)):
                  messagebox.showinfo("Success", f"User '{username}' removed.")
-                 self.loadActiveUsersAndRoles() # Refresh list
+                 self.loadActiveUsersAndRoles()
             else:
                  messagebox.showerror("Error", f"Failed to remove user '{username}'.")
 
@@ -1727,14 +1535,12 @@ class AdminFrame(BaseFrame):
         query = "UPDATE TeamInfo SET team_name = %s WHERE team_number = %s"
         if executeQuery(query, (newName, currentTeamNumber)):
              messagebox.showinfo("Success", "Team name updated.")
-             # Update global teamInfo state
              teamInfo['team_name'] = newName
-             # Optionally update dashboard if visible? Usually handled by onShow.
         else:
              messagebox.showerror("Error", "Failed to update team name.")
 
     def updateTeamPassword(self):
-        newPassword = self.teamPwdSettingEntry.get() # No strip() for passwords
+        newPassword = self.teamPwdSettingEntry.get()
         teamData = self.controller.getTeamInfo()
 
         if not newPassword:
@@ -1746,13 +1552,12 @@ class AdminFrame(BaseFrame):
              
         currentTeamNumber = teamData['team_number']
         
-        # Ask for confirmation
         if messagebox.askyesno("Confirm Password Change", "Are you sure you want to change the team password?"):
              hashedPass = hashPassword(newPassword)
              query = "UPDATE TeamInfo SET team_password_hash = %s WHERE team_number = %s"
              if executeQuery(query, (hashedPass, currentTeamNumber)):
                   messagebox.showinfo("Success", "Team password updated.")
-                  self.teamPwdSettingEntry.delete(0, tk.END) # Clear field after update
+                  self.teamPwdSettingEntry.delete(0, tk.END)
              else:
                   messagebox.showerror("Error", "Failed to update team password.")
 
@@ -1761,17 +1566,15 @@ class AdminFrame(BaseFrame):
 if __name__ == "__main__":
     app = FtcPortalApp()
     
-    # Ensure DB connection is closed when the app exits
     def onClosing():
         print("Closing application...")
         closeDb()
         app.destroy()
 
-    app.protocol("WM_DELETE_WINDOW", onClosing) # Handle window close button
+    app.protocol("WM_DELETE_WINDOW", onClosing)
     
     try:
         app.mainloop()
     except KeyboardInterrupt:
-        # Handle Ctrl+C in console if running from source
         print("\nKeyboardInterrupt detected, closing.")
         onClosing()
