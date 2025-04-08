@@ -13,7 +13,7 @@ from datetime import datetime
 
 CONFIG_FILE_NAME = "ftc_portal_config.json"
 FTC_SCOUT_API_BASE_URL = "https://api.ftcscout.org/rest/v1"
-CURRENT_FTC_SEASON = datetime.now().year
+CURRENT_FTC_SEASON = 2024
 
 dbConnection = None
 currentUser = None
@@ -36,19 +36,20 @@ def saveConfig(configData):
     try:
         with open(filePath, 'w') as f:
             json.dump(configData, f, indent=4)
+        os.chmod(filePath, 0o600)
     except IOError as e:
         messagebox.showerror("Config Error", f"Failed to save configuration:\n{e}")
 
 def loadConfig():
-    global dbUrlUsed, currentUser
     filePath = getConfigFilePath()
     if os.path.exists(filePath):
         try:
             with open(filePath, 'r') as f:
                 config = json.load(f)
+                global dbUrlUsed, currentUser
                 dbUrlUsed = config.get("dbUrl")
                 if "username" in config:
-                    currentUser = {"username": config["username"]}
+                    currentUser = {"username": config["username"]}  # Store for auto-fill
                 return config
         except (IOError, json.JSONDecodeError) as e:
             messagebox.showerror("Config Error", f"Failed to load configuration:\n{e}\nConfiguration file might be corrupted.")
@@ -228,10 +229,8 @@ def checkFtcTeamExists(teamNumber):
 
 def getFtcTeamQuickStats(teamNumber, season=CURRENT_FTC_SEASON):
     try:
-        url = f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}/quick-stats"
+        url = f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}/events/{CURRENT_FTC_SEASON}"
         params = {}
-        if season:
-            params['season'] = season
         
         response = requests.get(url, params=params)
         
@@ -258,7 +257,7 @@ def getFtcTeamDetails(teamNumber):
         
 def getFtcTeamEvents(teamNumber, season=CURRENT_FTC_SEASON):
     try:
-        response = requests.get(f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}/events/{season}")
+        response = requests.get(f"{FTC_SCOUT_API_BASE_URL}/teams/{teamNumber}/events/{CURRENT_FTC_SEASON}")
         if response.status_code == 200:
             return response.json()
         else:
@@ -269,9 +268,51 @@ def getFtcTeamEvents(teamNumber, season=CURRENT_FTC_SEASON):
 
 class BaseFrame(ttk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent)
+        super().__init__(parent)  # Only pass parent to ttk.Frame
         self.controller = controller
         self.grid(row=0, column=0, sticky="nsew")
+        
+        # Configure grid weights
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        
+        # Create and configure sidebar
+        self.sidebar = ttk.Frame(self, width=250, style='Card.TFrame', relief=tk.RIDGE)
+        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.sidebar.grid_propagate(False)  # Prevent sidebar from shrinking
+        self.sidebar.grid_columnconfigure(0, weight=1)
+        self.sidebar.grid_rowconfigure(6, weight=1)  # Space before logout button
+        
+        # Create main content area
+        self.mainContent = ttk.Frame(self)
+        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.mainContent.grid_columnconfigure(0, weight=1)
+        self.mainContent.grid_rowconfigure(0, weight=1)
+        
+        # Add navigation buttons
+        self.createNavButtons()
+        
+    def createNavButtons(self):
+        style = ttk.Style()
+        style.configure('Sidebar.TButton', font=('Helvetica', 16), padding=15)
+        
+        ttk.Button(self.sidebar, text="Dashboard", command=lambda: self.controller.showFrame("DashboardFrame"), 
+                  style='Sidebar.TButton').grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        ttk.Button(self.sidebar, text="Attendance", command=lambda: self.controller.showFrame("AttendanceFrame"), 
+                  style='Sidebar.TButton').grid(row=1, column=0, sticky="ew", padx=10, pady=10)
+        ttk.Button(self.sidebar, text="Scouting", command=lambda: self.controller.showFrame("ScoutingFrame"), 
+                  style='Sidebar.TButton').grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+        ttk.Button(self.sidebar, text="Guides", command=lambda: self.controller.showFrame("GuidesFrame"), 
+                  style='Sidebar.TButton').grid(row=3, column=0, sticky="ew", padx=10, pady=10)
+        ttk.Button(self.sidebar, text="Settings", command=lambda: self.controller.showFrame("SettingsFrame"), 
+                  style='Sidebar.TButton').grid(row=4, column=0, sticky="ew", padx=10, pady=10)
+        
+        self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: self.controller.showFrame("AdminFrame"), 
+                                    style='Sidebar.TButton')
+        self.adminButton.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+        
+        ttk.Button(self.sidebar, text="Logout", command=self.controller.logout, 
+                  style='Sidebar.TButton').grid(row=7, column=0, sticky="ew", padx=10, pady=20)
 
     def show(self):
         self.tkraise()
@@ -289,24 +330,25 @@ class LoginFrame(BaseFrame):
         self.hasConfig = bool(dbUrlUsed)
 
         style = ttk.Style(self)
-        style.configure('Login.TButton', font=('Helvetica', 12))
-        style.configure('Header.TLabel', font=('Helvetica', 18, 'bold'))
+        style.configure('Login.TButton', font=('Helvetica', 16), padding=15)
+        style.configure('Header.TLabel', font=('Helvetica', 28, 'bold'))
 
-        headerLabel = ttk.Label(self, text="FTC Team Portal", style='Header.TLabel')
-        headerLabel.pack(pady=20)
+        # Create header label
+        headerLabel = ttk.Label(self.mainContent, text="FTC Team Portal", style='Header.TLabel')
+        headerLabel.grid(row=0, column=0, columnspan=2, pady=30)
 
-        self.contentFrame = ttk.Frame(self)
-        self.contentFrame.pack(pady=10, padx=50, fill="x")
+        # Create content frame
+        self.contentFrame = ttk.Frame(self.mainContent)
+        self.contentFrame.grid(row=1, column=0, columnspan=2, pady=20, padx=60, sticky="ew")
+        self.contentFrame.grid_columnconfigure(1, weight=1)
 
+        # Create form elements
         self.dbUrlLabel = ttk.Label(self.contentFrame, text="Database URL:")
         self.dbUrlEntry = ttk.Entry(self.contentFrame, width=50)
-
         self.usernameLabel = ttk.Label(self.contentFrame, text="Username:")
         self.usernameEntry = ttk.Entry(self.contentFrame, width=30)
-
         self.passwordLabel = ttk.Label(self.contentFrame, text="Password:")
         self.passwordEntry = ttk.Entry(self.contentFrame, show="*", width=30)
-        
         self.teamNumberLabel = ttk.Label(self.contentFrame, text="Your Team Number:")
         self.teamNumberEntry = ttk.Entry(self.contentFrame, width=15)
         self.teamNameLabel = ttk.Label(self.contentFrame, text="Your Team Name:")
@@ -314,73 +356,91 @@ class LoginFrame(BaseFrame):
         self.teamPasswordLabel = ttk.Label(self.contentFrame, text="Create Team Password:")
         self.teamPasswordEntry = ttk.Entry(self.contentFrame, show="*", width=30)
         
-        self.loginButton = ttk.Button(self, text="Login", command=self.attemptLogin, style='Login.TButton')
-        self.showJoinButton = ttk.Button(self, text="Join a Team", command=lambda: self.showMode('join'), style='Login.TButton')
-        self.showCreateButton = ttk.Button(self, text="Create a Team", command=lambda: self.showMode('create'), style='Login.TButton')
-        self.joinButton = ttk.Button(self, text="Send Join Request", command=self.attemptJoin, style='Login.TButton')
-        self.createButton = ttk.Button(self, text="Create Team & Account", command=self.attemptCreateTeam, style='Login.TButton')
-        self.backButton = ttk.Button(self, text="Back", command=lambda: self.showMode('initial'), style='Login.TButton')
+        # Create buttons
+        self.loginButton = ttk.Button(self.mainContent, text="Login", command=self.attemptLogin, style='Login.TButton')
+        self.showJoinButton = ttk.Button(self.mainContent, text="Join a Team", command=lambda: self.showMode('join'), style='Login.TButton')
+        self.showCreateButton = ttk.Button(self.mainContent, text="Create a Team", command=lambda: self.showMode('create'), style='Login.TButton')
+        self.joinButton = ttk.Button(self.mainContent, text="Send Join Request", command=self.attemptJoin, style='Login.TButton')
+        self.createButton = ttk.Button(self.mainContent, text="Create Team & Account", command=self.attemptCreateTeam, style='Login.TButton')
+        self.backButton = ttk.Button(self.mainContent, text="Back", command=lambda: self.showMode('initial'), style='Login.TButton')
 
+        self.loadSavedCredentials()
         self.showMode('initial')
 
+    def loadSavedCredentials(self):
+        config = loadConfig()
+        if config:
+            if 'dbUrl' in config:
+                self.dbUrlEntry.delete(0, tk.END)
+                self.dbUrlEntry.insert(0, config['dbUrl'])
+                if dbUrlUsed:
+                    self.dbUrlEntry.config(state="readonly")
+            
+            if 'username' in config:
+                self.usernameEntry.delete(0, tk.END)
+                self.usernameEntry.insert(0, config['username'])
+                self.passwordEntry.focus_set()
+
+    def onShow(self):
+        self.loadSavedCredentials()
+        if self.autoLoginPossible():
+            self.attemptAutoLogin()
+
+    def autoLoginPossible(self):
+        return (dbUrlUsed and currentUser and currentUser.get('username') 
+                and self.passwordEntry.get() == '')
+
+    def attemptAutoLogin(self):
+        password = simpledialog.askstring(
+            "Password Required",
+            f"Enter password for {currentUser.get('username')}:",
+            parent=self,
+            show='*'
+        )
+        if password:
+            self.passwordEntry.delete(0, tk.END)
+            self.passwordEntry.insert(0, password)
+            self.attemptLogin()
+
     def showMode(self, mode):
+        # Hide all widgets first
         for widget in self.contentFrame.winfo_children():
             widget.grid_forget()
-        self.loginButton.pack_forget()
-        self.showJoinButton.pack_forget()
-        self.showCreateButton.pack_forget()
-        self.joinButton.pack_forget()
-        self.createButton.pack_forget()
-        self.backButton.pack_forget()
+        
+        self.loginButton.grid_forget()
+        self.showJoinButton.grid_forget()
+        self.showCreateButton.grid_forget()
+        self.joinButton.grid_forget()
+        self.createButton.grid_forget()
+        self.backButton.grid_forget()
 
         if mode == 'initial':
             if self.hasConfig:
                 self.showMode('login')
             else:
-                self.showJoinButton.pack(pady=10)
-                self.showCreateButton.pack(pady=5)
+                self.showJoinButton.grid(row=2, column=0, pady=10)
+                self.showCreateButton.grid(row=3, column=0, pady=5)
         
         elif mode == 'login':
             self.dbUrlLabel.grid(row=0, column=0, padx=5, pady=5, sticky="w")
             self.dbUrlEntry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-            self.dbUrlEntry.delete(0, tk.END)
-            if dbUrlUsed:
-                self.dbUrlEntry.insert(0, dbUrlUsed)
-                self.dbUrlEntry.config(state="readonly")
-            else:
-                self.dbUrlEntry.config(state="normal")
-                self.dbUrlLabel.grid_remove()
-                self.dbUrlEntry.grid_remove()
-
             self.usernameLabel.grid(row=1, column=0, padx=5, pady=5, sticky="w")
             self.usernameEntry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
             self.passwordLabel.grid(row=2, column=0, padx=5, pady=5, sticky="w")
             self.passwordEntry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-            self.contentFrame.grid_columnconfigure(1, weight=1)
-
-            config = loadConfig()
-            if config and "username" in config:
-                self.usernameEntry.delete(0, tk.END)
-                self.usernameEntry.insert(0, config["username"])
-
-            self.loginButton.pack(pady=20)
+            self.loginButton.grid(row=3, column=0, columnspan=2, pady=20)
             if not self.hasConfig:
-                self.backButton.pack(pady=5)
+                self.backButton.grid(row=4, column=0, columnspan=2, pady=5)
 
         elif mode == 'join':
             self.dbUrlLabel.grid(row=0, column=0, padx=5, pady=5, sticky="w")
             self.dbUrlEntry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-            self.dbUrlEntry.config(state="normal")
-            self.dbUrlEntry.delete(0, tk.END)
-
             self.usernameLabel.grid(row=1, column=0, padx=5, pady=5, sticky="w")
             self.usernameEntry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
             self.passwordLabel.grid(row=2, column=0, padx=5, pady=5, sticky="w")
             self.passwordEntry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-            self.contentFrame.grid_columnconfigure(1, weight=1)
-
-            self.joinButton.pack(pady=20)
-            self.backButton.pack(pady=5)
+            self.joinButton.grid(row=3, column=0, columnspan=2, pady=20)
+            self.backButton.grid(row=4, column=0, columnspan=2, pady=5)
             
         elif mode == 'create':
             self.usernameLabel.grid(row=0, column=0, padx=5, pady=5, sticky="w")
@@ -389,19 +449,14 @@ class LoginFrame(BaseFrame):
             self.passwordEntry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
             self.dbUrlLabel.grid(row=2, column=0, padx=5, pady=5, sticky="w")
             self.dbUrlEntry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-            self.dbUrlEntry.config(state="normal")
-            self.dbUrlEntry.delete(0, tk.END)
             self.teamNumberLabel.grid(row=3, column=0, padx=5, pady=5, sticky="w")
             self.teamNumberEntry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
             self.teamNameLabel.grid(row=4, column=0, padx=5, pady=5, sticky="w")
             self.teamNameEntry.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
             self.teamPasswordLabel.grid(row=5, column=0, padx=5, pady=5, sticky="w")
             self.teamPasswordEntry.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
-            
-            self.contentFrame.grid_columnconfigure(1, weight=1)
-
-            self.createButton.pack(pady=20)
-            self.backButton.pack(pady=5)
+            self.createButton.grid(row=6, column=0, columnspan=2, pady=20)
+            self.backButton.grid(row=7, column=0, columnspan=2, pady=5)
 
     def attemptLogin(self):
         global currentUser, teamInfo, dbUrlUsed
@@ -451,7 +506,7 @@ class LoginFrame(BaseFrame):
                         return
 
                     if not self.hasConfig:
-                        saveConfig({"dbUrl": targetDbUrl})
+                        saveConfig({"dbUrl": targetDbUrl,"username":username})
                         dbUrlUsed = targetDbUrl
 
                     print(f"Login successful for user: {currentUser['username']}")
@@ -497,7 +552,7 @@ class LoginFrame(BaseFrame):
 
         if result:
             messagebox.showinfo("Join Request Sent", "Your request to join the team has been sent.\nAn administrator must approve your account before you can log in.")
-            saveConfig({"dbUrl": targetDbUrl})
+            saveConfig({"dbUrl": targetDbUrl,"username":username})
             dbUrlUsed = targetDbUrl
             closeDb()
             self.showMode('login')
@@ -568,73 +623,80 @@ class LoginFrame(BaseFrame):
             cursor.close()
 
             if adminUserData:
-                 currentUser = {
+                currentUser = {
                      'user_id': adminUserData[0],
                      'username': adminUserData[1],
                      'is_admin': adminUserData[2],
                      'role_id': adminUserData[3]
                  }
-                 teamInfo = {'team_number': teamNumber, 'team_name': teamName}
+                teamInfo = {'team_number': teamNumber, 'team_name': teamName}
 
-                 saveConfig({"dbUrl": targetDbUrl})
-                 dbUrlUsed = targetDbUrl
+                saveConfig({"dbUrl": targetDbUrl, "username": adminUsername})
+                dbUrlUsed = targetDbUrl
 
-                 messagebox.showinfo("Team Created", f"Team '{teamName}' ({teamNumber}) created successfully!\nYou are logged in as the administrator.")
-                 self.controller.showFrame("DashboardFrame")
+                messagebox.showinfo("Team Created", f"Team '{teamName}' ({teamNumber}) created successfully!\nYou are logged in as the administrator.")
+                self.controller.showFrame("DashboardFrame")
             else:
-                 messagebox.showerror("Creation Failed", "Failed to create the administrator user account.")
-                 closeDb()
+                messagebox.showerror("Creation Failed", "Failed to create the administrator user account.")
+                closeDb()
         
         except psycopg2.Error as e:
-             messagebox.showerror("Creation Error", f"An error occurred during team creation:\n{e}")
-             closeDb()
+            messagebox.showerror("Creation Error", f"An error occurred during team creation:\n{e}")
+            closeDb()
 
 
 # --- Main Application Window ---
 class FtcPortalApp(ThemedTk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        
+        # First set basic window properties
+        self.title("FTC Portal")
+        self.attributes('-fullscreen', True)
+        self.bind('<Escape>', lambda e: self.attributes('-fullscreen', False))
+        
+        # Load theme
         forestDarkPath = os.path.join(os.path.dirname(__file__), "themes", "forest-dark.tcl")
         self.tk.call("source", forestDarkPath)
         ttk.Style().theme_use("forest-dark")
+        
+        # Configure global styles
+        style = ttk.Style()
+        style.configure('TLabel', font=('Helvetica', 14))
+        style.configure('TButton', font=('Helvetica', 14), padding=10)
+        style.configure('TEntry', font=('Helvetica', 14))
+        style.configure('Header.TLabel', font=('Helvetica', 24, 'bold'))
+        style.configure('Subheader.TLabel', font=('Helvetica', 18, 'bold'))
+        style.configure('Card.TFrame', padding=15)
+        
+        # Load config
+        config = loadConfig()
+        self.initialDbUrl = config.get("dbUrl")
+        self.initialUsername = config.get("username")
 
-
-        self.attributes('-fullscreen', True)
-        self.bind('<Escape>', lambda e: self.quitFullscreen())
-
-        self.title("FTC Portal")
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
+        # Create container frame
         container = ttk.Frame(self)
-        container.grid(row=0, column=0, sticky="nsew")
+        container.pack(fill="both", expand=True)
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
+        # Initialize frames
         self.frames = {}
-
         for F in (LoginFrame, DashboardFrame, AttendanceFrame, ScoutingFrame, GuidesFrame, SettingsFrame, AdminFrame):
-            pageName = F.__name__
+            page_name = F.__name__
             frame = F(parent=container, controller=self)
-            self.frames[pageName] = frame
+            self.frames[page_name] = frame
+            frame.grid(row=0, column=0, sticky="nsew")
 
-        print("Frames initialized:", list(self.frames.keys()))
+        # Show appropriate frame
+        self.showFrame("LoginFrame")
 
-        config = loadConfig()
-        if dbUrlUsed and currentUser and "username" in currentUser:
-            self.showFrame("LoginFrame")
-        else:
-            self.showFrame("LoginFrame")
-
-
-    def showFrame(self, pageName):
-        if pageName not in self.frames:
-            print(f"Error: Frame '{pageName}' not found.")
-            return
-        frame = self.frames[pageName]
-        if hasattr(frame, 'onShow') and callable(frame.onShow):
-            frame.onShow() 
-        frame.tkraise()
+    def showFrame(self, page_name):
+        frame = self.frames.get(page_name)
+        if frame:
+            if hasattr(frame, 'onShow'):
+                frame.onShow()
+            frame.tkraise()
         
     def quitFullscreen(self):
         self.attributes('-fullscreen', False)
@@ -647,54 +709,38 @@ class FtcPortalApp(ThemedTk):
             currentUser = {"username": currentUser.get("username", "")}
         teamInfo = None
         self.showFrame("LoginFrame")
-        
-    def getDbConnection(self):
-        return dbConnection
-        
+    
     def getCurrentUser(self):
-         return currentUser
+        global currentUser
+        return currentUser
 
     def getTeamInfo(self):
+        global teamInfo
         return teamInfo
 
 # --- Placeholder Frames for other sections ---
 
 class DashboardFrame(BaseFrame):
-     def __init__(self, parent, controller):
+    def __init__(self, parent, controller):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Dashboard")
         
-        self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1)
+        # Welcome label
+        self.welcomeLabel = ttk.Label(self.mainContent, text="Hello, ", font=("Helvetica", 24))
+        self.welcomeLabel.pack(pady=30, anchor="w", padx=30)
 
-        self.mainContent = ttk.Frame(self)
-        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        # Stats frame
+        statsFrame = ttk.Frame(self.mainContent, style='Card.TFrame', padding=30, relief=tk.GROOVE, borderwidth=2)
+        statsFrame.pack(pady=30, padx=60, fill="x")
 
-        ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
-        ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
+        self.teamNameLabel = ttk.Label(statsFrame, text="Team Name: ", font=("Helvetica", 18))
+        self.teamNameLabel.grid(row=0, column=0, sticky="w", pady=10)
+        self.teamNumberLabel = ttk.Label(statsFrame, text="Team Number: ", font=("Helvetica", 18))
+        self.teamNumberLabel.grid(row=1, column=0, sticky="w", pady=10)
+        self.teammateCountLabel = ttk.Label(statsFrame, text="Number of Teammates: ", font=("Helvetica", 18))
+        self.teammateCountLabel.grid(row=2, column=0, sticky="w", pady=10)
 
-        self.welcomeLabel = ttk.Label(self.mainContent, text="Hello, ", font=("Helvetica", 16))
-        self.welcomeLabel.pack(pady=20, anchor="w", padx=20)
-
-        statsFrame = ttk.Frame(self.mainContent, style='Card.TFrame', padding=20, relief=tk.GROOVE, borderwidth=2)
-        statsFrame.pack(pady=20, padx=50, fill="x")
-
-        self.teamNameLabel = ttk.Label(statsFrame, text="Team Name: ", font=("Helvetica", 12))
-        self.teamNameLabel.grid(row=0, column=0, sticky="w", pady=5)
-        self.teamNumberLabel = ttk.Label(statsFrame, text="Team Number: ", font=("Helvetica", 12))
-        self.teamNumberLabel.grid(row=1, column=0, sticky="w", pady=5)
-        self.teammateCountLabel = ttk.Label(statsFrame, text="Number of Teammates: ", font=("Helvetica", 12))
-        self.teammateCountLabel.grid(row=2, column=0, sticky="w", pady=5)
-
-     def onShow(self):
+    def onShow(self):
         self.controller.title("FTC Portal - Dashboard")
         userInfo = self.controller.getCurrentUser()
         teamData = self.controller.getTeamInfo()
@@ -729,23 +775,6 @@ class AttendanceFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Attendance")
         
-        self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1) 
-
-        ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
-        ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
-
-        self.mainContent = ttk.Frame(self)
-        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        
         self.createMeetingButton = ttk.Button(self.mainContent, text="Create New Meeting", command=self.openCreateMeetingDialog)
 
         self.attendanceListFrame = ttk.Frame(self.mainContent)
@@ -755,7 +784,6 @@ class AttendanceFrame(BaseFrame):
         ttk.Label(self.attendanceListFrame, text="Attendance (Present/Absent)", font=("Helvetica", 12, "bold")).grid(row=0, column=1, padx=10, pady=5, sticky="w")
         
         self.attendanceRows = []
-
 
     def onShow(self):
         self.controller.title("FTC Portal - Attendance")
@@ -930,23 +958,6 @@ class ScoutingFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Scouting")
         
-        self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1)
-
-        ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
-        ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
-
-        self.mainContent = ttk.Frame(self)
-        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        
         ownTeamFrame = ttk.LabelFrame(self.mainContent, text="Your Team's Stats", padding=10)
         ownTeamFrame.pack(pady=10, padx=5, fill="x")
 
@@ -965,7 +976,6 @@ class ScoutingFrame(BaseFrame):
         self.queryButton.grid(row=0, column=2, padx=5, pady=5)
         self.queryResultsText = tk.Text(queryFrame, height=10, width=70, state=tk.DISABLED)
         self.queryResultsText.grid(row=1, column=0, columnspan=3, pady=10, padx=5)
-
 
     def onShow(self):
         self.controller.title("FTC Portal - Scouting")
@@ -1009,19 +1019,23 @@ class ScoutingFrame(BaseFrame):
              self.teamDetailsLabel.config(text=detailsText)
 
         stats = getFtcTeamQuickStats(teamNumber)
-        statsText = f"Quick Stats (Season {stats.get('season', CURRENT_FTC_SEASON)}):\n"
-        if "error" in stats:
-            statsText += f"Error loading stats: {stats['error']}"
-        elif not stats:
-             statsText += "No quick stats found for the current season."
+        statsText = f"Quick Stats (Season {CURRENT_FTC_SEASON}):\n"
+        
+        if isinstance(stats, dict):
+            if "error" in stats:
+                statsText += f"Error loading stats: {stats['error']}"
+            elif not stats:
+                statsText += "No quick stats found for the current season."
+            else:
+                statsText += f"  OPR: {stats.get('opr', 'N/A'):.2f}\n"
+                statsText += f"  NPR: {stats.get('npr', 'N/A'):.2f}\n"
+                statsText += f"  TPR: {stats.get('tpr', 'N/A'):.2f}\n"
+                statsText += f"  Wins: {stats.get('wins', 'N/A')}\n"
+                statsText += f"  Losses: {stats.get('losses', 'N/A')}\n"
+                statsText += f"  Ties: {stats.get('ties', 'N/A')}\n"
+                statsText += f"  Average Rank: {stats.get('rank', 'N/A'):.2f}\n"
         else:
-             statsText += f"  OPR: {stats.get('opr', 'N/A'):.2f}\n"
-             statsText += f"  NPR: {stats.get('npr', 'N/A'):.2f}\n"
-             statsText += f"  TPR: {stats.get('tpr', 'N/A'):.2f}\n"
-             statsText += f"  Wins: {stats.get('wins', 'N/A')}\n"
-             statsText += f"  Losses: {stats.get('losses', 'N/A')}\n"
-             statsText += f"  Ties: {stats.get('ties', 'N/A')}\n"
-             statsText += f"  Average Rank: {stats.get('rank', 'N/A'):.2f}\n"
+            statsText += "No quick stats available for the current season."
 
         self.teamStatsLabel.config(text=statsText)
         
@@ -1030,23 +1044,6 @@ class GuidesFrame(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Guides")
-        
-        self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1)
-
-        ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
-        ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
-
-        self.mainContent = ttk.Frame(self)
-        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
         
         actionBar = ttk.Frame(self.mainContent)
         actionBar.pack(fill="x", pady=5)
@@ -1070,7 +1067,6 @@ class GuidesFrame(BaseFrame):
         viewButton = ttk.Button(self.topicsFrame, text="View Selected Guide", command=self.viewSelectedGuide)
         viewButton.pack(pady=5)
 
-
         self.videoTopicLabel = ttk.Label(self.videosFrame, text="Videos for: ", font=("Helvetica", 14, "bold"))
         self.videoTopicLabel.pack(pady=10)
 
@@ -1083,7 +1079,6 @@ class GuidesFrame(BaseFrame):
         openUrlButton.pack(pady=5)
         
         self.currentGuideId = None
-
 
     def onShow(self):
         self.controller.title("FTC Portal - Guides")
@@ -1098,7 +1093,6 @@ class GuidesFrame(BaseFrame):
              self.adminButton.grid_remove()
 
         self.showTopicsView()
-
 
     def showTopicsView(self):
         self.createTopicButton.pack(side=tk.LEFT, padx=5)
@@ -1243,61 +1237,18 @@ class SettingsFrame(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Settings")
-        
-        self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1)
-
-        ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        self.adminButton = ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame"))
-        ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
-
-        self.mainContent = ttk.Frame(self)
-        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
 
         ttk.Label(self.mainContent, text="Settings", font=("Helvetica", 16, "bold")).pack(pady=10)
-        ttk.Label(self.mainContent, text="Settings section is currently under daevelopment.").pack(pady=20)
-
-    def onShow(self):
-        self.controller.title("FTC Portal - Settings")
-        userInfo = self.controller.getCurrentUser()
-        if not userInfo:
-             self.controller.showFrame("LoginFrame")
-             return
-             
-        if userInfo.get('is_admin'):
-             self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
-        else:
-             self.adminButton.grid_remove()
+        ttk.Label(self.mainContent, text="Settings section is currently under development.").pack(pady=20)
 
 
 class AdminFrame(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Admin Panel")
-        
-        self.sidebar = ttk.Frame(self, width=150, style='Card.TFrame', relief=tk.RIDGE)
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=5, pady=5)
-        self.sidebar.grid_rowconfigure(6, weight=1)
 
-        ttk.Button(self.sidebar, text="Dashboard", command=lambda: controller.showFrame("DashboardFrame")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Attendance", command=lambda: controller.showFrame("AttendanceFrame")).grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Scouting", command=lambda: controller.showFrame("ScoutingFrame")).grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Guides", command=lambda: controller.showFrame("GuidesFrame")).grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Settings", command=lambda: controller.showFrame("SettingsFrame")).grid(row=4, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Admin Panel", command=lambda: controller.showFrame("AdminFrame")).grid(row=5, column=0, sticky="ew", padx=5, pady=5)
-        ttk.Button(self.sidebar, text="Logout", command=controller.logout).grid(row=7, column=0, sticky="ew", padx=5, pady=10)
-
-        self.mainContent = ttk.Notebook(self)
-        self.mainContent.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.mainContent = ttk.Notebook(self.mainContent)
+        self.mainContent.pack(fill="both", expand=True, padx=15, pady=15)
 
         self.userMgmtTab = ttk.Frame(self.mainContent, padding=10)
         self.mainContent.add(self.userMgmtTab, text='User Management')
@@ -1336,7 +1287,6 @@ class AdminFrame(BaseFrame):
         self.toggleAdminButton.pack(pady=10, fill="x")
         ttk.Button(roleActionsFrame, text="Remove User", command=self.removeSelectedUser).pack(pady=10, fill="x")
 
-
         self.teamSettingsTab = ttk.Frame(self.mainContent, padding=10)
         self.mainContent.add(self.teamSettingsTab, text='Team Settings')
 
@@ -1354,7 +1304,6 @@ class AdminFrame(BaseFrame):
         self.dbUrlSettingLabel = ttk.Label(self.teamSettingsTab, text=dbUrlUsed or "N/A", foreground="grey", wraplength=300)
         self.dbUrlSettingLabel.grid(row=2, column=1, padx=5, pady=10, sticky="w")
         ttk.Label(self.teamSettingsTab, text="(Cannot change via app)", foreground="grey").grid(row=2, column=2, padx=10, pady=10, sticky="w")
-        
 
     def onShow(self):
         self.controller.title("FTC Portal - Admin Panel")
