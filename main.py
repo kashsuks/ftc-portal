@@ -725,20 +725,37 @@ class DashboardFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Dashboard")
         
-        # Welcome label
+        # Welcome label centered at top
         self.welcomeLabel = ttk.Label(self.mainContent, text="Hello, ", font=("Helvetica", 32))
-        self.welcomeLabel.pack(pady=30, anchor="w", padx=30)
+        self.welcomeLabel.pack(pady=30)
 
-        # Stats frame
-        statsFrame = ttk.Frame(self.mainContent, style='Card.TFrame', padding=30, relief=tk.GROOVE, borderwidth=2)
-        statsFrame.pack(pady=30, padx=60, fill="x")
+        # Create container for stats bubbles
+        statsContainer = ttk.Frame(self.mainContent)
+        statsContainer.pack(pady=30, padx=60, fill="x")
+        statsContainer.grid_columnconfigure(0, weight=1)
+        statsContainer.grid_columnconfigure(1, weight=1)
+        statsContainer.grid_columnconfigure(2, weight=1)
 
-        self.teamNameLabel = ttk.Label(statsFrame, text="Team Name: ", font=("Helvetica", 24))
-        self.teamNameLabel.grid(row=0, column=0, sticky="w", pady=10)
-        self.teamNumberLabel = ttk.Label(statsFrame, text="Team Number: ", font=("Helvetica", 24))
-        self.teamNumberLabel.grid(row=1, column=0, sticky="w", pady=10)
-        self.teammateCountLabel = ttk.Label(statsFrame, text="Number of Teammates: ", font=("Helvetica", 24))
-        self.teammateCountLabel.grid(row=2, column=0, sticky="w", pady=10)
+        # Team Name Box
+        teamNameBox = ttk.Frame(statsContainer, style='Card.TFrame', padding=20, relief=tk.GROOVE, borderwidth=2)
+        teamNameBox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        ttk.Label(teamNameBox, text="Team", font=("Helvetica", 18)).pack()
+        self.teamNameLabel = ttk.Label(teamNameBox, text="", font=("Helvetica", 24, "bold"), foreground="#2ecc71")
+        self.teamNameLabel.pack(pady=5)
+
+        # Team Number Box
+        teamNumberBox = ttk.Frame(statsContainer, style='Card.TFrame', padding=20, relief=tk.GROOVE, borderwidth=2)
+        teamNumberBox.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        ttk.Label(teamNumberBox, text="Team Number", font=("Helvetica", 18)).pack()
+        self.teamNumberLabel = ttk.Label(teamNumberBox, text="", font=("Helvetica", 24, "bold"), foreground="#2ecc71")
+        self.teamNumberLabel.pack(pady=5)
+
+        # Teammates Box
+        teammatesBox = ttk.Frame(statsContainer, style='Card.TFrame', padding=20, relief=tk.GROOVE, borderwidth=2)
+        teammatesBox.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
+        ttk.Label(teammatesBox, text="Teammates", font=("Helvetica", 18)).pack()
+        self.teammateCountLabel = ttk.Label(teammatesBox, text="", font=("Helvetica", 24, "bold"), foreground="#2ecc71")
+        self.teammateCountLabel.pack(pady=5)
 
     def onShow(self):
         self.controller.title("FTC Portal - Dashboard")
@@ -752,17 +769,17 @@ class DashboardFrame(BaseFrame):
         self.welcomeLabel.config(text=f"Hello, {userInfo.get('username', 'User')}")
 
         if teamData:
-             self.teamNameLabel.config(text=f"Team Name: {teamData.get('team_name', 'N/A')}")
-             self.teamNumberLabel.config(text=f"Team Number: {teamData.get('team_number', 'N/A')}")
+             self.teamNameLabel.config(text=f"{teamData.get('team_name', 'N/A')}")
+             self.teamNumberLabel.config(text=f"{teamData.get('team_number', 'N/A')}")
         else:
-             self.teamNameLabel.config(text="Team Name: Error loading")
-             self.teamNumberLabel.config(text="Team Number: Error loading")
+             self.teamNameLabel.config(text="Error loading")
+             self.teamNumberLabel.config(text="Error loading")
 
         countResult = executeQuery("SELECT COUNT(user_id) FROM Users WHERE is_pending = FALSE", fetch=True)
         if countResult:
-             self.teammateCountLabel.config(text=f"Active Teammates: {countResult[0]['count']}")
+             self.teammateCountLabel.config(text=f"{countResult[0]['count']}")
         else:
-             self.teammateCountLabel.config(text="Active Teammates: Error loading")
+             self.teammateCountLabel.config(text="Error loading")
              
         if userInfo.get('is_admin'):
              self.adminButton.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
