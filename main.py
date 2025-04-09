@@ -268,7 +268,7 @@ def getFtcTeamEvents(teamNumber, season=CURRENT_FTC_SEASON):
 
 class BaseFrame(ttk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent)  # Only pass parent to ttk.Frame
+        super().__init__(parent)
         self.controller = controller
         self.grid(row=0, column=0, sticky="nsew")
         
@@ -294,7 +294,7 @@ class BaseFrame(ttk.Frame):
         
     def createNavButtons(self):
         style = ttk.Style()
-        style.configure('Sidebar.TButton', font=('Helvetica', 16), padding=15)
+        style.configure('Sidebar.TButton', font=('Helvetica', 18), padding=15)
         
         ttk.Button(self.sidebar, text="Dashboard", command=lambda: self.controller.showFrame("DashboardFrame"), 
                   style='Sidebar.TButton').grid(row=0, column=0, sticky="ew", padx=10, pady=10)
@@ -330,8 +330,8 @@ class LoginFrame(BaseFrame):
         self.hasConfig = bool(dbUrlUsed)
 
         style = ttk.Style(self)
-        style.configure('Login.TButton', font=('Helvetica', 16), padding=15)
-        style.configure('Header.TLabel', font=('Helvetica', 28, 'bold'))
+        style.configure('Login.TButton', font=('Helvetica', 18), padding=15)
+        style.configure('Header.TLabel', font=('Helvetica', 36, 'bold'))
 
         # Create header label
         headerLabel = ttk.Label(self.mainContent, text="FTC Team Portal", style='Header.TLabel')
@@ -662,11 +662,11 @@ class FtcPortalApp(ThemedTk):
         
         # Configure global styles
         style = ttk.Style()
-        style.configure('TLabel', font=('Helvetica', 14))
-        style.configure('TButton', font=('Helvetica', 14), padding=10)
-        style.configure('TEntry', font=('Helvetica', 14))
-        style.configure('Header.TLabel', font=('Helvetica', 24, 'bold'))
-        style.configure('Subheader.TLabel', font=('Helvetica', 18, 'bold'))
+        style.configure('TLabel', font=('Helvetica', 16))
+        style.configure('TButton', font=('Helvetica', 16), padding=10)
+        style.configure('TEntry', font=('Helvetica', 16))
+        style.configure('Header.TLabel', font=('Helvetica', 32, 'bold'))
+        style.configure('Subheader.TLabel', font=('Helvetica', 24, 'bold'))
         style.configure('Card.TFrame', padding=15)
         
         # Load config
@@ -726,18 +726,18 @@ class DashboardFrame(BaseFrame):
         self.controller.title("FTC Portal - Dashboard")
         
         # Welcome label
-        self.welcomeLabel = ttk.Label(self.mainContent, text="Hello, ", font=("Helvetica", 24))
+        self.welcomeLabel = ttk.Label(self.mainContent, text="Hello, ", font=("Helvetica", 32))
         self.welcomeLabel.pack(pady=30, anchor="w", padx=30)
 
         # Stats frame
         statsFrame = ttk.Frame(self.mainContent, style='Card.TFrame', padding=30, relief=tk.GROOVE, borderwidth=2)
         statsFrame.pack(pady=30, padx=60, fill="x")
 
-        self.teamNameLabel = ttk.Label(statsFrame, text="Team Name: ", font=("Helvetica", 18))
+        self.teamNameLabel = ttk.Label(statsFrame, text="Team Name: ", font=("Helvetica", 24))
         self.teamNameLabel.grid(row=0, column=0, sticky="w", pady=10)
-        self.teamNumberLabel = ttk.Label(statsFrame, text="Team Number: ", font=("Helvetica", 18))
+        self.teamNumberLabel = ttk.Label(statsFrame, text="Team Number: ", font=("Helvetica", 24))
         self.teamNumberLabel.grid(row=1, column=0, sticky="w", pady=10)
-        self.teammateCountLabel = ttk.Label(statsFrame, text="Number of Teammates: ", font=("Helvetica", 18))
+        self.teammateCountLabel = ttk.Label(statsFrame, text="Number of Teammates: ", font=("Helvetica", 24))
         self.teammateCountLabel.grid(row=2, column=0, sticky="w", pady=10)
 
     def onShow(self):
@@ -780,8 +780,8 @@ class AttendanceFrame(BaseFrame):
         self.attendanceListFrame = ttk.Frame(self.mainContent)
         self.attendanceListFrame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        ttk.Label(self.attendanceListFrame, text="Teammate", font=("Helvetica", 12, "bold")).grid(row=0, column=0, padx=10, pady=5, sticky="w")
-        ttk.Label(self.attendanceListFrame, text="Attendance (Present/Absent)", font=("Helvetica", 12, "bold")).grid(row=0, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(self.attendanceListFrame, text="Teammate", font=("Helvetica", 20, "bold")).grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(self.attendanceListFrame, text="Attendance (Present/Absent)", font=("Helvetica", 20, "bold")).grid(row=0, column=1, padx=10, pady=5, sticky="e")
         
         self.attendanceRows = []
 
@@ -810,10 +810,10 @@ class AttendanceFrame(BaseFrame):
         users = executeQuery(usersQuery, fetch=True)
         
         if users is None:
-             ttk.Label(self.attendanceListFrame, text="Error loading user data.").grid(row=1, column=0, columnspan=2)
+             ttk.Label(self.attendanceListFrame, text="Error loading user data.", font=("Helvetica", 18)).grid(row=1, column=0, columnspan=2)
              return
         if not users:
-            ttk.Label(self.attendanceListFrame, text="No active users found.").grid(row=1, column=0, columnspan=2)
+            ttk.Label(self.attendanceListFrame, text="No active users found.", font=("Helvetica", 18)).grid(row=1, column=0, columnspan=2)
             return
 
         attendanceQuery = """
@@ -842,17 +842,17 @@ class AttendanceFrame(BaseFrame):
             presentCount = stats['present']
             absentCount = stats['absent']
 
-            nameLabel = ttk.Label(self.attendanceListFrame, text=username)
+            nameLabel = ttk.Label(self.attendanceListFrame, text=username, font=("Helvetica", 18))
             nameLabel.grid(row=i + 1, column=0, padx=10, pady=2, sticky="w")
             
             statFrame = ttk.Frame(self.attendanceListFrame)
-            statFrame.grid(row=i + 1, column=1, padx=10, pady=2, sticky="w")
+            statFrame.grid(row=i + 1, column=1, padx=10, pady=2, sticky="e")
 
-            presentLabel = ttk.Label(statFrame, text=str(presentCount), foreground="green", font=("Helvetica", 10, "bold"))
+            presentLabel = ttk.Label(statFrame, text=str(presentCount), foreground="green", font=("Helvetica", 18, "bold"))
             presentLabel.pack(side=tk.LEFT)
-            slashLabel = ttk.Label(statFrame, text="/")
+            slashLabel = ttk.Label(statFrame, text="/", font=("Helvetica", 18))
             slashLabel.pack(side=tk.LEFT)
-            absentLabel = ttk.Label(statFrame, text=str(absentCount), foreground="red", font=("Helvetica", 10, "bold"))
+            absentLabel = ttk.Label(statFrame, text=str(absentCount), foreground="red", font=("Helvetica", 18, "bold"))
             absentLabel.pack(side=tk.LEFT)
 
             self.attendanceRows.extend([nameLabel, statFrame])
@@ -961,20 +961,20 @@ class ScoutingFrame(BaseFrame):
         ownTeamFrame = ttk.LabelFrame(self.mainContent, text="Your Team's Stats", padding=10)
         ownTeamFrame.pack(pady=10, padx=5, fill="x")
 
-        self.teamDetailsLabel = ttk.Label(ownTeamFrame, text="Fetching team details...", wraplength=600, justify=tk.LEFT)
+        self.teamDetailsLabel = ttk.Label(ownTeamFrame, text="Fetching team details...", wraplength=600, justify=tk.LEFT, font=("Helvetica", 18))
         self.teamDetailsLabel.pack(pady=5, anchor="w")
         
-        self.teamStatsLabel = ttk.Label(ownTeamFrame, text="Fetching quick stats...", wraplength=600, justify=tk.LEFT)
+        self.teamStatsLabel = ttk.Label(ownTeamFrame, text="Fetching quick stats...", wraplength=600, justify=tk.LEFT, font=("Helvetica", 18))
         self.teamStatsLabel.pack(pady=5, anchor="w")
 
         queryFrame = ttk.LabelFrame(self.mainContent, text="Query Other Teams/Events (Future Feature)", padding=10)
         queryFrame.pack(pady=20, padx=5, fill="x")
-        ttk.Label(queryFrame, text="Enter Team # or Event Code:").grid(row=0, column=0, padx=5, pady=5)
-        self.queryEntry = ttk.Entry(queryFrame, width=30)
+        ttk.Label(queryFrame, text="Enter Team # or Event Code:", font=("Helvetica", 18)).grid(row=0, column=0, padx=5, pady=5)
+        self.queryEntry = ttk.Entry(queryFrame, width=30, font=("Helvetica", 18))
         self.queryEntry.grid(row=0, column=1, padx=5, pady=5)
-        self.queryButton = ttk.Button(queryFrame, text="Query API (Not Implemented)")
+        self.queryButton = ttk.Button(queryFrame, text="Query API (Not Implemented)", style='TButton')
         self.queryButton.grid(row=0, column=2, padx=5, pady=5)
-        self.queryResultsText = tk.Text(queryFrame, height=10, width=70, state=tk.DISABLED)
+        self.queryResultsText = tk.Text(queryFrame, height=10, width=70, state=tk.DISABLED, font=("Helvetica", 16))
         self.queryResultsText.grid(row=1, column=0, columnspan=3, pady=10, padx=5)
 
     def onShow(self):
@@ -1057,9 +1057,13 @@ class GuidesFrame(BaseFrame):
         
         self.videosFrame = ttk.Frame(self.mainContent)
 
-        ttk.Label(self.topicsFrame, text="Guide Topics", font=("Helvetica", 14, "bold")).pack(pady=10)
+        ttk.Label(self.topicsFrame, text="Guide Topics", font=("Helvetica", 24, "bold")).pack(pady=10)
         
-        self.topicsTree = ttk.Treeview(self.topicsFrame, columns=("topic"), show="headings")
+        style = ttk.Style()
+        style.configure('Treeview', font=('Helvetica', 18))
+        style.configure('Treeview.Heading', font=('Helvetica', 20, 'bold'))
+        
+        self.topicsTree = ttk.Treeview(self.topicsFrame, columns=("topic"), show="headings", style='Treeview')
         self.topicsTree.heading("topic", text="Topic Name")
         self.topicsTree.pack(fill="both", expand=True, padx=10, pady=5)
         self.topicsTree.bind("<Double-1>", self.onTopicDoubleClick)
@@ -1067,10 +1071,10 @@ class GuidesFrame(BaseFrame):
         viewButton = ttk.Button(self.topicsFrame, text="View Selected Guide", command=self.viewSelectedGuide)
         viewButton.pack(pady=5)
 
-        self.videoTopicLabel = ttk.Label(self.videosFrame, text="Videos for: ", font=("Helvetica", 14, "bold"))
+        self.videoTopicLabel = ttk.Label(self.videosFrame, text="Videos for: ", font=("Helvetica", 24, "bold"))
         self.videoTopicLabel.pack(pady=10)
 
-        self.videosTree = ttk.Treeview(self.videosFrame, columns=("title", "url"), show="headings")
+        self.videosTree = ttk.Treeview(self.videosFrame, columns=("title", "url"), show="headings", style='Treeview')
         self.videosTree.heading("title", text="Video Title")
         self.videosTree.heading("url", text="URL")
         self.videosTree.column("url", width=300)
@@ -1238,8 +1242,8 @@ class SettingsFrame(BaseFrame):
         super().__init__(parent, controller)
         self.controller.title("FTC Portal - Settings")
 
-        ttk.Label(self.mainContent, text="Settings", font=("Helvetica", 16, "bold")).pack(pady=10)
-        ttk.Label(self.mainContent, text="Settings section is currently under development.").pack(pady=20)
+        ttk.Label(self.mainContent, text="Settings", font=("Helvetica", 32, "bold")).pack(pady=10)
+        ttk.Label(self.mainContent, text="Settings section is currently under development.", font=("Helvetica", 20)).pack(pady=20)
 
 
 class AdminFrame(BaseFrame):
@@ -1256,7 +1260,7 @@ class AdminFrame(BaseFrame):
         pendingFrame = ttk.LabelFrame(self.userMgmtTab, text="Pending Join Requests", padding=10)
         pendingFrame.pack(fill="x", pady=10)
         
-        self.pendingUsersTree = ttk.Treeview(pendingFrame, columns=("username", "requested_at"), show="headings")
+        self.pendingUsersTree = ttk.Treeview(pendingFrame, columns=("username", "requested_at"), show="headings", style='Treeview')
         self.pendingUsersTree.heading("username", text="Username")
         self.pendingUsersTree.heading("requested_at", text="Requested At")
         self.pendingUsersTree.column("requested_at", width=150)
@@ -1270,7 +1274,7 @@ class AdminFrame(BaseFrame):
         activeFrame = ttk.LabelFrame(self.userMgmtTab, text="Active Users & Roles", padding=10)
         activeFrame.pack(fill="both", expand=True, pady=10)
         
-        self.activeUsersTree = ttk.Treeview(activeFrame, columns=("username", "role", "is_admin"), show="headings")
+        self.activeUsersTree = ttk.Treeview(activeFrame, columns=("username", "role", "is_admin"), show="headings", style='Treeview')
         self.activeUsersTree.heading("username", text="Username")
         self.activeUsersTree.heading("role", text="Assigned Role")
         self.activeUsersTree.heading("is_admin", text="Admin Status")
@@ -1279,8 +1283,8 @@ class AdminFrame(BaseFrame):
 
         roleActionsFrame = ttk.Frame(activeFrame)
         roleActionsFrame.pack(side=tk.LEFT, fill="y", padx=(5,0))
-        ttk.Label(roleActionsFrame, text="Assign Role:").pack(pady=(0,2))
-        self.roleCombobox = ttk.Combobox(roleActionsFrame, state="readonly", width=15)
+        ttk.Label(roleActionsFrame, text="Assign Role:", font=("Helvetica", 18)).pack(pady=(0,2))
+        self.roleCombobox = ttk.Combobox(roleActionsFrame, state="readonly", width=15, font=("Helvetica", 16))
         self.roleCombobox.pack(pady=(0, 5), fill="x")
         ttk.Button(roleActionsFrame, text="Set Role", command=self.assignSelectedUserRole).pack(pady=2, fill="x")
         self.toggleAdminButton = ttk.Button(roleActionsFrame, text="Toggle Admin", command=self.toggleSelectedUserAdmin)
@@ -1290,20 +1294,20 @@ class AdminFrame(BaseFrame):
         self.teamSettingsTab = ttk.Frame(self.mainContent, padding=10)
         self.mainContent.add(self.teamSettingsTab, text='Team Settings')
 
-        ttk.Label(self.teamSettingsTab, text="Team Name:").grid(row=0, column=0, padx=5, pady=10, sticky="w")
-        self.teamNameSettingEntry = ttk.Entry(self.teamSettingsTab, width=40)
+        ttk.Label(self.teamSettingsTab, text="Team Name:", font=("Helvetica", 18)).grid(row=0, column=0, padx=5, pady=10, sticky="w")
+        self.teamNameSettingEntry = ttk.Entry(self.teamSettingsTab, width=40, font=("Helvetica", 16))
         self.teamNameSettingEntry.grid(row=0, column=1, padx=5, pady=10)
         ttk.Button(self.teamSettingsTab, text="Update Name", command=self.updateTeamName).grid(row=0, column=2, padx=10, pady=10)
 
-        ttk.Label(self.teamSettingsTab, text="Team Password:").grid(row=1, column=0, padx=5, pady=10, sticky="w")
-        self.teamPwdSettingEntry = ttk.Entry(self.teamSettingsTab, show="*", width=40)
+        ttk.Label(self.teamSettingsTab, text="Team Password:", font=("Helvetica", 18)).grid(row=1, column=0, padx=5, pady=10, sticky="w")
+        self.teamPwdSettingEntry = ttk.Entry(self.teamSettingsTab, show="*", width=40, font=("Helvetica", 16))
         self.teamPwdSettingEntry.grid(row=1, column=1, padx=5, pady=10)
         ttk.Button(self.teamSettingsTab, text="Update Password", command=self.updateTeamPassword).grid(row=1, column=2, padx=10, pady=10)
         
-        ttk.Label(self.teamSettingsTab, text="Database URL:", foreground="grey").grid(row=2, column=0, padx=5, pady=10, sticky="w")
-        self.dbUrlSettingLabel = ttk.Label(self.teamSettingsTab, text=dbUrlUsed or "N/A", foreground="grey", wraplength=300)
+        ttk.Label(self.teamSettingsTab, text="Database URL:", font=("Helvetica", 18), foreground="grey").grid(row=2, column=0, padx=5, pady=10, sticky="w")
+        self.dbUrlSettingLabel = ttk.Label(self.teamSettingsTab, text=dbUrlUsed or "N/A", foreground="grey", wraplength=300, font=("Helvetica", 16))
         self.dbUrlSettingLabel.grid(row=2, column=1, padx=5, pady=10, sticky="w")
-        ttk.Label(self.teamSettingsTab, text="(Cannot change via app)", foreground="grey").grid(row=2, column=2, padx=10, pady=10, sticky="w")
+        ttk.Label(self.teamSettingsTab, text="(Cannot change via app)", foreground="grey", font=("Helvetica", 16)).grid(row=2, column=2, padx=10, pady=10, sticky="w")
 
     def onShow(self):
         self.controller.title("FTC Portal - Admin Panel")
